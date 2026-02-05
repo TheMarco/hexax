@@ -6,8 +6,8 @@ const PARTICLE_LIFE_MS = 2200; // very long persistence
 const TAIL_LENGTH = 50; // long vector streaks
 const FADE_START = 0.85; // stay full brightness until 85% of lifetime, then snap off
 
-// Single-pass sharp vector lines (no glow/blur)
-const LINE_WIDTH = 1.5;
+// Match tunnel line thickness for visibility
+const LINE_WIDTH = 2.5;
 
 export class ExplosionRenderer {
   constructor() {
@@ -20,10 +20,10 @@ export class ExplosionRenderer {
       const angle = (i / PARTICLE_COUNT) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
       const speed = PARTICLE_SPEED * (0.6 + Math.random() * 0.7);
 
-      // Match the brightness of active lane highlights (full intensity)
-      const r = (color >> 16) & 0xff;
-      const g = (color >> 8) & 0xff;
-      const b = color & 0xff;
+      // Boost brightness to match tunnel lines
+      const r = Math.min(255, ((color >> 16) & 0xff) * 1.3);
+      const g = Math.min(255, ((color >> 8) & 0xff) * 1.3);
+      const b = Math.min(255, (color & 0xff) * 1.3);
       const particleColor = Phaser.Display.Color.GetColor(r, g, b);
 
       particles.push({

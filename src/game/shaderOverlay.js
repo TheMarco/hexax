@@ -22,7 +22,7 @@ uniform float u_time;
 varying vec2 v_texCoord;
 
 #define PI 3.14159265359
-#define BLOOM_STRENGTH 0.5
+#define BLOOM_STRENGTH 0.65
 #define SCANLINE_STRENGTH 0.7
 #define MASK_STRENGTH 0.08
 #define NOISE_STRENGTH 0.025
@@ -181,7 +181,7 @@ const vec2 texel = vec2(1.0 / 768.0, 1.0 / 672.0);
 
 #define CURVATURE 0.04
 #define CORNER_RADIUS 0.08
-#define PHOSPHOR_DECAY 0.65
+#define PHOSPHOR_DECAY 0.78
 
 float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 
@@ -205,19 +205,23 @@ float roundedRectSDF(vec2 uv, vec2 s, float r) {
   return min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - r;
 }
 
-// Phosphor color ramp with exponential falloff.
-// Real P31 phosphor: black → dim green → bright green → white-hot center
+// Cyan/blue phosphor (like the reference image)
+// Bright cyan-blue with white cores at peak brightness
 vec3 phosphor(float i) {
-  // Exponential intensity curve — sharper than linear, mimics real phosphor
-  float e = pow(i, 1.6);
+  // Smooth intensity curve
+  float e = pow(i, 1.1);
 
-  // Green channel dominates, red/blue creep in at high intensity (white-hot)
-  float g = e;
-  float r = e * e * 0.55;          // red only at high brightness
-  float b = e * e * 0.25;          // slight blue tint at peak
+  // Cyan-blue color: low red, high green and blue
+  float r = e * 0.3;        // low red for cyan
+  float g = e * 0.85;       // high green
+  float b = e * 1.0;        // max blue
 
-  // Slight green bias in the dim range (phosphor afterglow color)
-  g += smoothstep(0.0, 0.15, i) * 0.06;
+  // Add white core at peak brightness only
+  if (e > 0.8) {
+    float hotness = (e - 0.8) / 0.2;
+    r += hotness * 0.5;
+    g += hotness * 0.1;
+  }
 
   return vec3(r, g, b);
 }
@@ -287,9 +291,9 @@ void main() {
   // Very subtle bloom halo (beam spot softness)
   float glow = softGlow(curved);
 
-  // Combine: core dominates, glow barely visible.
+  // Combine: moderate boost for bright but not blown-out lines
   // The source canvas already has glow passes baked in.
-  float intensity = core * 0.72 + glow * 0.08;
+  float intensity = core * 0.95 + glow * 0.12;
 
   // Map through phosphor color curve
   vec3 color = phosphor(min(intensity, 1.0));
@@ -303,13 +307,11 @@ void main() {
   color += grain * intensity;
 
   // ── Glass surface reflection ──
-  // Vector CRT glass has a subtle ambient reflection — the screen
-  // is never truly pitch black, there's a very faint greenish tint
-  // from room light bouncing off the glass surface.
+  // Very subtle blue-tinted ambient (matches the bright blue-white aesthetic)
   vec2 glassCoord = curved * 2.0 - 1.0;
   float glassHighlight = 1.0 - dot(glassCoord, glassCoord) * 0.5;
   glassHighlight = max(glassHighlight, 0.0);
-  color += vec3(0.003, 0.008, 0.004) * glassHighlight;
+  color += vec3(0.002, 0.003, 0.006) * glassHighlight;
 
   // ── Subtle analog noise ──
   float n = (hash(gl_FragCoord.xy, u_time) - 0.5) * 0.01;

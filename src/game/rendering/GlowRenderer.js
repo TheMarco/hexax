@@ -4,9 +4,9 @@
  */
 
 const GLOW_PASSES = [
-  { width: 6, alpha: 0.15 },
-  { width: 3, alpha: 0.4 },
-  { width: 1.2, alpha: 1.0 },
+  { width: 16, alpha: 0.08 },  // very wide outer glow, subtle
+  { width: 8, alpha: 0.22 },   // wide mid-glow
+  { width: 2.5, alpha: 1.0 },  // sharp core
 ];
 
 export function drawGlowLine(gfx, x1, y1, x2, y2, color) {
