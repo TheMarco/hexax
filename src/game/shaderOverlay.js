@@ -28,6 +28,8 @@ varying vec2 v_texCoord;
 #define NOISE_STRENGTH 0.025
 #define FLICKER_STRENGTH 0.08
 #define ABERRATION_STRENGTH 0.0
+#define CURVATURE_STRENGTH 0.02
+#define CORNER_RADIUS 0.15
 
 // Fast gamma approximation
 vec3 toLinear(vec3 color) {
@@ -46,6 +48,21 @@ vec3 noise(vec2 co, float time) {
   return vec3(r, g, b) * 2.0 - 1.0;
 }
 
+// Apply barrel distortion (CRT curvature)
+vec2 curveUV(vec2 uv) {
+  vec2 centered = uv * 2.0 - 1.0;
+  float r2 = dot(centered, centered);
+  float distortion = 1.0 + r2 * CURVATURE_STRENGTH;
+  centered *= distortion;
+  return centered * 0.5 + 0.5;
+}
+
+// Rounded rectangle SDF
+float roundedRectSDF(vec2 uv, vec2 size, float radius) {
+  vec2 d = abs(uv - 0.5) * 2.0 - size + radius;
+  return min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - radius;
+}
+
 // 5-tap blur at low-res texture scale (256x224)
 vec3 getBlur(sampler2D tex, vec2 uv) {
   const vec2 texel = vec2(1.0 / 256.0, 1.0 / 224.0);
@@ -61,17 +78,40 @@ vec3 getBlur(sampler2D tex, vec2 uv) {
 void main() {
   vec2 uv = v_texCoord;
 
+  // Check rounded corners first
+  float cornerDist = roundedRectSDF(uv, vec2(1.0, 1.0), CORNER_RADIUS);
+  if (cornerDist > 0.0) {
+    gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+    return;
+  }
+
+  // Apply CRT curvature
+  vec2 curvedUV = curveUV(uv);
+
+  // Check bounds
+  const float margin = 0.001;
+  if (curvedUV.x < -margin || curvedUV.x > 1.0 + margin ||
+      curvedUV.y < -margin || curvedUV.y > 1.0 + margin) {
+    gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+    return;
+  }
+
+  curvedUV = clamp(curvedUV, 0.0, 1.0);
+
   // Snap to 256x224 virtual pixel grid
   const vec2 virtualRes = vec2(256.0, 224.0);
-  vec2 pixelUV = (floor(uv * virtualRes) + 0.5) / virtualRes;
+  vec2 pixelUV = (floor(curvedUV * virtualRes) + 0.5) / virtualRes;
 
-  // Max-sample: 3 vertical taps within each virtual pixel, take brightest.
-  // Thin horizontal lines (1-2px in source) can never be missed.
+  // Max-sample: cross pattern (5 taps) within each virtual pixel, take brightest.
+  // Vertical taps catch thin horizontal lines, horizontal taps catch thin vertical strokes (text).
   vec2 vStep = vec2(0.0, 0.4 / virtualRes.y);
+  vec2 hStep = vec2(0.4 / virtualRes.x, 0.0);
   vec3 s0 = toLinear(texture2D(u_texture, pixelUV).rgb);
   vec3 s1 = toLinear(texture2D(u_texture, pixelUV - vStep).rgb);
   vec3 s2 = toLinear(texture2D(u_texture, pixelUV + vStep).rgb);
-  vec3 color = max(max(s0, s1), s2);
+  vec3 s3 = toLinear(texture2D(u_texture, pixelUV - hStep).rgb);
+  vec3 s4 = toLinear(texture2D(u_texture, pixelUV + hStep).rgb);
+  vec3 color = max(max(max(s0, s1), max(s2, s3)), s4);
 
   // Bloom at virtual-pixel scale
   vec3 blur = getBlur(u_texture, pixelUV);
@@ -80,7 +120,7 @@ void main() {
 
   // Scanlines aligned to virtual pixel rows (224 rows).
   // Dark gaps sit at boundaries BETWEEN rows, not through content.
-  float virtualY = uv.y * 224.0;
+  float virtualY = curvedUV.y * 224.0;
   float scanline = mix(1.0 - SCANLINE_STRENGTH, 1.0, sin(fract(virtualY) * PI));
   color *= scanline;
 
@@ -96,8 +136,8 @@ void main() {
   }
   color *= mask;
 
-  // Subtle vignette
-  vec2 centered = uv * 2.0 - 1.0;
+  // Subtle vignette (use curved UV for proper effect)
+  vec2 centered = curvedUV * 2.0 - 1.0;
   float vignette = 1.0 - dot(centered, centered) * 0.12;
   color *= vignette;
 
