@@ -29,11 +29,13 @@ export class GameScene extends Phaser.Scene {
     this.entityManager = new EntityManager();
     this.explosionRenderer = new ExplosionRenderer();
     this.collisionSystem = new CollisionSystem(this.entityManager, this.state);
-    this.collisionSystem.onHit = (lane, depth, color) => {
+    this.collisionSystem.onHit = (lane, depth, prevDepth, color) => {
       const VISUAL_OFFSET = 2;
       const renderLane = this.state.getRenderLane(lane);
       const visualLane = (renderLane + VISUAL_OFFSET) % CONFIG.NUM_LANES;
-      const pos = this.geometry.getMidpoint(depth, visualLane, this._rotAngle);
+      const enemyLerp = this.tickSystem.enemyTimer.getProgress();
+      const visualDepth = prevDepth + (depth - prevDepth) * enemyLerp;
+      const pos = this.geometry.getMidpointLerp(visualDepth, visualLane, this._rotAngle);
       this.explosionRenderer.spawn(pos.x, pos.y, color);
     };
     this.spawnSystem = new SpawnSystem(this.entityManager, this.state);

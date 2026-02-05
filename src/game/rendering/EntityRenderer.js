@@ -62,36 +62,27 @@ export class EntityRenderer {
       }
     }
 
-    // Walls: smooth interpolated slab
+    // Walls: smooth interpolated slab (always lerp — killed walls stay in
+    // the array until next tick cleanup so the final step stays smooth)
     for (const wall of entityManager.walls) {
       const renderLane = state.getRenderLane(wall.lane);
       const visualLane = (renderLane + visualOffset) % CONFIG.NUM_LANES;
 
-      let visualDepth;
-      if (!wall.alive) {
-        visualDepth = wall.depth;
-      } else {
-        visualDepth = wall.prevDepth + (wall.depth - wall.prevDepth) * enemyLerp;
-      }
+      const visualDepth = wall.prevDepth + (wall.depth - wall.prevDepth) * enemyLerp;
 
       if (visualDepth >= 0 && visualDepth <= CONFIG.MAX_DEPTH) {
         this._drawWallSlab(gfx, visualDepth, visualLane, rotAngle);
       }
     }
 
-    // Double walls: smooth interpolated slab spanning two faces
+    // Double walls: smooth interpolated slab spanning two faces (always lerp)
     for (const dw of entityManager.doublewalls) {
       const renderLane1 = state.getRenderLane(dw.lane);
       const visualLane1 = (renderLane1 + visualOffset) % CONFIG.NUM_LANES;
       const renderLane2 = state.getRenderLane(dw.lane2);
       const visualLane2 = (renderLane2 + visualOffset) % CONFIG.NUM_LANES;
 
-      let visualDepth;
-      if (!dw.alive) {
-        visualDepth = dw.depth;
-      } else {
-        visualDepth = dw.prevDepth + (dw.depth - dw.prevDepth) * enemyLerp;
-      }
+      const visualDepth = dw.prevDepth + (dw.depth - dw.prevDepth) * enemyLerp;
 
       if (visualDepth >= 0 && visualDepth <= CONFIG.MAX_DEPTH) {
         this._drawDoubleWallSlab(gfx, visualDepth, visualLane1, visualLane2, rotAngle);

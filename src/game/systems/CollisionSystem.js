@@ -4,7 +4,7 @@ export class CollisionSystem {
   constructor(entityManager, state) {
     this.entityManager = entityManager;
     this.state = state;
-    this.onHit = null; // callback(lane, depth, color) when a hit occurs
+    this.onHit = null; // callback(lane, depth, prevDepth, color) when a hit occurs
   }
 
   resolve() {
@@ -21,15 +21,15 @@ export class CollisionSystem {
             const dead = enemy.hit();
             if (dead) {
               this.state.score += 200;
-              if (this.onHit) this.onHit(enemy.lane, enemy.depth, CONFIG.COLORS.TANK);
+              if (this.onHit) this.onHit(enemy.lane, enemy.depth, enemy.prevDepth, CONFIG.COLORS.TANK);
             } else {
               this.state.score += 50;
-              if (this.onHit) this.onHit(enemy.lane, enemy.depth, CONFIG.COLORS.TANK);
+              if (this.onHit) this.onHit(enemy.lane, enemy.depth, enemy.prevDepth, CONFIG.COLORS.TANK);
             }
           } else {
             enemy.kill();
             this.state.score += 100;
-            if (this.onHit) this.onHit(enemy.lane, enemy.depth, CONFIG.COLORS.ENEMY);
+            if (this.onHit) this.onHit(enemy.lane, enemy.depth, enemy.prevDepth, CONFIG.COLORS.ENEMY);
           }
           break;
         }
