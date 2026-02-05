@@ -118,6 +118,8 @@ export class EntityRenderer {
     const v1i = { x: v1.x + nx, y: v1.y + ny };
     const v2i = { x: v2.x + nx, y: v2.y + ny };
 
+    // Bottom edge (needed now that walls lerp between rings)
+    drawGlowLine(gfx, v1.x, v1.y, v2.x, v2.y, CONFIG.COLORS.TUNNEL);
     // Sides + inner edge
     drawGlowLine(gfx, v1.x, v1.y, v1i.x, v1i.y, CONFIG.COLORS.TUNNEL);
     drawGlowLine(gfx, v1i.x, v1i.y, v2i.x, v2i.y, CONFIG.COLORS.TUNNEL);
@@ -145,6 +147,10 @@ export class EntityRenderer {
     const v1i = { x: v1.x + nx, y: v1.y + ny };
     const vMidI = { x: vMid.x + nx, y: vMid.y + ny };
     const v3i = { x: v3.x + nx, y: v3.y + ny };
+
+    // Bottom edges (needed now that walls lerp between rings)
+    drawGlowLine(gfx, v1.x, v1.y, vMid.x, vMid.y, CONFIG.COLORS.TUNNEL);
+    drawGlowLine(gfx, vMid.x, vMid.y, v3.x, v3.y, CONFIG.COLORS.TUNNEL);
 
     // Outer sides
     drawGlowLine(gfx, v1.x, v1.y, v1i.x, v1i.y, CONFIG.COLORS.TUNNEL);

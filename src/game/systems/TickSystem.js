@@ -43,17 +43,18 @@ export class TickSystem {
       if (dw.alive) dw.tick();
     }
 
-    // Notify ring flash — entities just arrived at new depths
+    // Notify ring flash — use prevDepth because the lerp hasn't started yet,
+    // so entities still render at their previous position visually
     if (this.onEnemyMove) {
       const depths = new Set();
       for (const e of this.entityManager.enemies) {
-        if (e.alive && e.depth >= 0) depths.add(e.depth);
+        if (e.alive && e.prevDepth >= 0) depths.add(e.prevDepth);
       }
       for (const w of this.entityManager.walls) {
-        if (w.alive && w.depth >= 0) depths.add(w.depth);
+        if (w.alive && w.prevDepth >= 0) depths.add(w.prevDepth);
       }
       for (const dw of this.entityManager.doublewalls) {
-        if (dw.alive && dw.depth >= 0) depths.add(dw.depth);
+        if (dw.alive && dw.prevDepth >= 0) depths.add(dw.prevDepth);
       }
       this.onEnemyMove(depths);
     }
