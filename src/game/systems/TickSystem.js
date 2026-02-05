@@ -32,6 +32,40 @@ export class TickSystem {
     // Cleanup from previous enemy tick (lets dead enemies/walls render one full cycle)
     this.entityManager.removeDeadEnemiesAndWalls();
 
+    // Game-over checks BEFORE ticking — entities at depth 0 have had the
+    // full 800ms lerp to visually arrive at the rim since last tick
+    for (const enemy of this.entityManager.enemies) {
+      if (enemy.alive && enemy.depth <= 0) {
+        this.state.gameOver = true;
+        return;
+      }
+    }
+
+    for (const wall of this.entityManager.walls) {
+      if (wall.alive && wall.depth <= 0) {
+        const renderLane = this.state.getRenderLane(wall.lane);
+        if (renderLane === 0) {
+          this.state.gameOver = true;
+          return;
+        }
+        // Dodged — remove it
+        wall.kill();
+      }
+    }
+
+    for (const dw of this.entityManager.doublewalls) {
+      if (dw.alive && dw.depth <= 0) {
+        const renderLane1 = this.state.getRenderLane(dw.lane);
+        const renderLane2 = this.state.getRenderLane(dw.lane2);
+        if (renderLane1 === 0 || renderLane2 === 0) {
+          this.state.gameOver = true;
+          return;
+        }
+        // Dodged — remove it
+        dw.kill();
+      }
+    }
+
     // Move enemies and walls
     for (const e of this.entityManager.enemies) {
       if (e.alive) e.tick();
@@ -61,42 +95,6 @@ export class TickSystem {
 
     // Collisions (enemy may have moved into a bullet)
     this.collisionSystem.resolve();
-
-    // Game over: enemy reaches depth 0
-    for (const enemy of this.entityManager.enemies) {
-      if (enemy.alive && enemy.depth <= 0) {
-        this.state.gameOver = true;
-        return;
-      }
-    }
-
-    // Game over: wall reaches depth 0 on the player's current lane
-    for (const wall of this.entityManager.walls) {
-      if (wall.alive && wall.depth <= 0) {
-        const renderLane = this.state.getRenderLane(wall.lane);
-        if (renderLane === 0) {
-          // Player is on this lane — game over
-          this.state.gameOver = true;
-          return;
-        }
-        // Dodged — remove it
-        wall.kill();
-      }
-    }
-
-    // Game over: double wall reaches depth 0 — check both lanes
-    for (const dw of this.entityManager.doublewalls) {
-      if (dw.alive && dw.depth <= 0) {
-        const renderLane1 = this.state.getRenderLane(dw.lane);
-        const renderLane2 = this.state.getRenderLane(dw.lane2);
-        if (renderLane1 === 0 || renderLane2 === 0) {
-          this.state.gameOver = true;
-          return;
-        }
-        // Dodged — remove it
-        dw.kill();
-      }
-    }
 
     // Spawn
     this.spawnSystem.maybeSpawn();

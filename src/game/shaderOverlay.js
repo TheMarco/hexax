@@ -1,3 +1,4 @@
+// ── Shared vertex shader ──
 const vertexShaderSource = `
 attribute vec2 a_position;
 attribute vec2 a_texCoord;
@@ -9,7 +10,9 @@ void main() {
 }
 `;
 
-const fragmentShaderSource = `
+// ── CRT raster display shader ──
+// Full-resolution sampling with scanlines and bloom
+const crtFragmentSource = `
 precision mediump float;
 
 uniform sampler2D u_texture;
@@ -25,14 +28,6 @@ varying vec2 v_texCoord;
 #define NOISE_STRENGTH 0.025
 #define FLICKER_STRENGTH 0.08
 #define ABERRATION_STRENGTH 0.0
-#define CURVATURE_STRENGTH 0.02
-#define CORNER_RADIUS 0.15
-#define GAMMA_IN 2.4
-#define GAMMA_OUT 2.2
-
-// Optimized for 256x224 resolution
-const vec2 sourceSize = vec2(256.0, 224.0);
-const vec2 texelSize = vec2(1.0 / 256.0, 1.0 / 224.0);
 
 // Fast gamma approximation
 vec3 toLinear(vec3 color) {
@@ -43,93 +38,50 @@ vec3 toGamma(vec3 color) {
   return sqrt(color);
 }
 
-// RGB noise function - separate noise for each channel
+// RGB noise function
 vec3 noise(vec2 co, float time) {
   float r = fract(sin(dot(co.xy + time, vec2(12.9898, 78.233))) * 43758.5453);
   float g = fract(sin(dot(co.xy + time, vec2(93.9898, 67.345))) * 43758.5453);
   float b = fract(sin(dot(co.xy + time, vec2(41.9898, 29.876))) * 43758.5453);
-  // Center around 0 for better contrast (range -1 to 1)
   return vec3(r, g, b) * 2.0 - 1.0;
 }
 
-// Apply barrel distortion (CRT curvature)
-vec2 curveUV(vec2 uv) {
-  vec2 centered = uv * 2.0 - 1.0;
-  float r2 = dot(centered, centered);
-  float distortion = 1.0 + r2 * CURVATURE_STRENGTH;
-  centered *= distortion;
-  return centered * 0.5 + 0.5;
-}
-
-// Rounded rectangle SDF (signed distance field)
-float roundedRectSDF(vec2 uv, vec2 size, float radius) {
-  vec2 d = abs(uv - 0.5) * 2.0 - size + radius;
-  return min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - radius;
-}
-
-// Optimized 5-tap blur for low-res source
+// 5-tap blur at low-res texture scale (256x224)
 vec3 getBlur(sampler2D tex, vec2 uv) {
+  const vec2 texel = vec2(1.0 / 256.0, 1.0 / 224.0);
   vec3 result = vec3(0.0);
-
-  // Horizontal + vertical cross pattern (5 taps instead of 9)
   result += toLinear(texture2D(tex, uv).rgb) * 0.4;
-  result += toLinear(texture2D(tex, uv + vec2(-texelSize.x, 0.0)).rgb) * 0.15;
-  result += toLinear(texture2D(tex, uv + vec2( texelSize.x, 0.0)).rgb) * 0.15;
-  result += toLinear(texture2D(tex, uv + vec2(0.0, -texelSize.y)).rgb) * 0.15;
-  result += toLinear(texture2D(tex, uv + vec2(0.0,  texelSize.y)).rgb) * 0.15;
-
+  result += toLinear(texture2D(tex, uv + vec2(-texel.x, 0.0)).rgb) * 0.15;
+  result += toLinear(texture2D(tex, uv + vec2( texel.x, 0.0)).rgb) * 0.15;
+  result += toLinear(texture2D(tex, uv + vec2(0.0, -texel.y)).rgb) * 0.15;
+  result += toLinear(texture2D(tex, uv + vec2(0.0,  texel.y)).rgb) * 0.15;
   return result;
 }
 
 void main() {
   vec2 uv = v_texCoord;
 
-  // Check rounded corners first (before curvature)
-  float cornerDist = roundedRectSDF(uv, vec2(1.0, 1.0), CORNER_RADIUS);
-  if (cornerDist > 0.0) {
-    gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-    return;
-  }
+  // Snap to 256x224 virtual pixel grid
+  const vec2 virtualRes = vec2(256.0, 224.0);
+  vec2 pixelUV = (floor(uv * virtualRes) + 0.5) / virtualRes;
 
-  // Apply CRT curvature
-  vec2 curvedUV = curveUV(uv);
+  // Max-sample: 3 vertical taps within each virtual pixel, take brightest.
+  // Thin horizontal lines (1-2px in source) can never be missed.
+  vec2 vStep = vec2(0.0, 0.4 / virtualRes.y);
+  vec3 s0 = toLinear(texture2D(u_texture, pixelUV).rgb);
+  vec3 s1 = toLinear(texture2D(u_texture, pixelUV - vStep).rgb);
+  vec3 s2 = toLinear(texture2D(u_texture, pixelUV + vStep).rgb);
+  vec3 color = max(max(s0, s1), s2);
 
-  // Check if we're outside the curved screen bounds with a small margin
-  const float margin = 0.001;
-  if (curvedUV.x < -margin || curvedUV.x > 1.0 + margin ||
-      curvedUV.y < -margin || curvedUV.y > 1.0 + margin) {
-    gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-    return;
-  }
-
-  // Clamp curvedUV to valid texture coordinates
-  curvedUV = clamp(curvedUV, 0.0, 1.0);
-
-  // Chromatic aberration - RGB channels shift based on distance from center
-  vec2 fromCenter = curvedUV - 0.5;
-  float dist = length(fromCenter);
-  vec2 offset = fromCenter * dist * ABERRATION_STRENGTH;
-
-  // Sample each color channel with slight offset
-  float r = toLinear(texture2D(u_texture, curvedUV - offset).rgb).r;
-  float g = toLinear(texture2D(u_texture, curvedUV).rgb).g;
-  float b = toLinear(texture2D(u_texture, curvedUV + offset).rgb).b;
-
-  vec3 color = vec3(r, g, b);
-
-  // Calculate glow/bloom - optimized for pixel art
-  vec3 blur = getBlur(u_texture, curvedUV);
-  float brightness = max(max(blur.r, blur.g), blur.b);
-
-  // Bloom only on bright pixels (threshold)
+  // Bloom at virtual-pixel scale
+  vec3 blur = getBlur(u_texture, pixelUV);
   vec3 bloom = max(blur - 0.6, 0.0) * 2.5;
   color += bloom * BLOOM_STRENGTH;
 
-  // Bold horizontal scanlines - every other line
-  float scanlineY = floor(gl_FragCoord.y * 0.5);
-  float scanline = mod(scanlineY, 2.0);
-  // Make dark lines really dark
-  scanline = scanline < 0.5 ? (1.0 - SCANLINE_STRENGTH) : 1.0;
+  // Scanlines aligned to virtual pixel rows (224 rows).
+  // Dark gaps sit at boundaries BETWEEN rows, not through content.
+  float virtualY = uv.y * 224.0;
+  float scanline = mix(1.0 - SCANLINE_STRENGTH, 1.0, sin(fract(virtualY) * PI));
   color *= scanline;
 
   // Very subtle phosphor mask
@@ -144,8 +96,8 @@ void main() {
   }
   color *= mask;
 
-  // Subtle vignette (use curved UV for proper effect)
-  vec2 centered = curvedUV * 2.0 - 1.0;
+  // Subtle vignette
+  vec2 centered = uv * 2.0 - 1.0;
   float vignette = 1.0 - dot(centered, centered) * 0.12;
   color *= vignette;
 
@@ -153,10 +105,10 @@ void main() {
   vec3 noiseValue = noise(gl_FragCoord.xy, u_time);
   color += noiseValue * NOISE_STRENGTH;
 
-  // Brightness flicker (simulates CRT power fluctuation) - more intense on brighter areas
+  // Brightness flicker (simulates CRT power fluctuation)
   float flicker = sin(u_time * 13.7) * 0.5 + sin(u_time * 7.3) * 0.3 + sin(u_time * 23.1) * 0.2;
   float colorBrightness = max(max(color.r, color.g), color.b);
-  flicker = flicker * FLICKER_STRENGTH * (1.0 + colorBrightness * 0.5); // Brighter areas flicker more
+  flicker = flicker * FLICKER_STRENGTH * (1.0 + colorBrightness * 0.5);
   color *= (1.0 + flicker);
 
   // Convert back to gamma space
@@ -169,15 +121,229 @@ void main() {
 }
 `;
 
+// ── Vector / oscilloscope display shader ──
+// Simulates a P31 green phosphor vector CRT (Vectrex / oscilloscope style).
+// The game canvas already has multi-pass glow baked in, so this shader does
+// minimal bloom — mostly just maps luminance to green phosphor, adds edge
+// beam defocus, phosphor grain, and glass surface characteristics.
+const vectorFragmentSource = `
+precision mediump float;
+
+uniform sampler2D u_texture;
+uniform sampler2D u_prevFrame;
+uniform vec2 u_resolution;
+uniform float u_time;
+
+varying vec2 v_texCoord;
+
+// Full-resolution texel size (768x672)
+const vec2 texel = vec2(1.0 / 768.0, 1.0 / 672.0);
+
+#define CURVATURE 0.02
+#define CORNER_RADIUS 0.08
+#define PHOSPHOR_DECAY 0.82
+
+float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+
+float hash(vec2 co, float t) {
+  return fract(sin(dot(co + t, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+// 2D hash for phosphor grain
+float hash2(vec2 co) {
+  return fract(sin(dot(co, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+vec2 curveUV(vec2 uv) {
+  vec2 c = uv * 2.0 - 1.0;
+  c *= 1.0 + dot(c, c) * CURVATURE;
+  return c * 0.5 + 0.5;
+}
+
+float roundedRectSDF(vec2 uv, vec2 s, float r) {
+  vec2 d = abs(uv - 0.5) * 2.0 - s + r;
+  return min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - r;
+}
+
+// Phosphor color ramp with exponential falloff.
+// Real P31 phosphor: black → dim green → bright green → white-hot center
+vec3 phosphor(float i) {
+  // Exponential intensity curve — sharper than linear, mimics real phosphor
+  float e = pow(i, 1.6);
+
+  // Green channel dominates, red/blue creep in at high intensity (white-hot)
+  float g = e;
+  float r = e * e * 0.55;          // red only at high brightness
+  float b = e * e * 0.25;          // slight blue tint at peak
+
+  // Slight green bias in the dim range (phosphor afterglow color)
+  g += smoothstep(0.0, 0.15, i) * 0.06;
+
+  return vec3(r, g, b);
+}
+
+// Lightweight bloom — just a 5-tap cross, 1px radius.
+// Only purpose: very subtle softening to simulate beam spot size.
+// The game canvas already has the heavy glow baked in.
+float softGlow(vec2 uv) {
+  float center = luma(texture2D(u_texture, uv).rgb);
+  float sum = center * 0.6;
+  sum += luma(texture2D(u_texture, clamp(uv + vec2(-texel.x, 0.0), 0.0, 1.0)).rgb) * 0.1;
+  sum += luma(texture2D(u_texture, clamp(uv + vec2( texel.x, 0.0), 0.0, 1.0)).rgb) * 0.1;
+  sum += luma(texture2D(u_texture, clamp(uv + vec2(0.0, -texel.y), 0.0, 1.0)).rgb) * 0.1;
+  sum += luma(texture2D(u_texture, clamp(uv + vec2(0.0,  texel.y), 0.0, 1.0)).rgb) * 0.1;
+  return sum;
+}
+
+// Edge beam defocus: on real vector displays the beam loses focus near
+// screen edges because the deflection angle increases and the beam
+// travels further to reach the phosphor. We simulate this by sampling
+// a slightly wider area near the edges.
+float defocusedSample(vec2 uv) {
+  // Distance from center (0 at center, ~0.7 at corners)
+  vec2 fromCenter = uv - 0.5;
+  float edgeDist = dot(fromCenter, fromCenter) * 2.0;
+  float defocusRadius = edgeDist * 3.0; // max ~2px blur at extreme edges
+
+  if (defocusRadius < 0.3) {
+    // Center of screen — sharp, no defocus
+    return luma(texture2D(u_texture, uv).rgb);
+  }
+
+  // Weighted average over small area simulating defocused beam spot
+  float r = defocusRadius;
+  float sum = luma(texture2D(u_texture, uv).rgb) * 0.40;
+  sum += luma(texture2D(u_texture, clamp(uv + vec2(-texel.x * r, 0.0), 0.0, 1.0)).rgb) * 0.10;
+  sum += luma(texture2D(u_texture, clamp(uv + vec2( texel.x * r, 0.0), 0.0, 1.0)).rgb) * 0.10;
+  sum += luma(texture2D(u_texture, clamp(uv + vec2(0.0, -texel.y * r), 0.0, 1.0)).rgb) * 0.10;
+  sum += luma(texture2D(u_texture, clamp(uv + vec2(0.0,  texel.y * r), 0.0, 1.0)).rgb) * 0.10;
+  // Diagonals for rounder spot shape
+  sum += luma(texture2D(u_texture, clamp(uv + vec2(-texel.x * r, -texel.y * r) * 0.7, 0.0, 1.0)).rgb) * 0.05;
+  sum += luma(texture2D(u_texture, clamp(uv + vec2( texel.x * r, -texel.y * r) * 0.7, 0.0, 1.0)).rgb) * 0.05;
+  sum += luma(texture2D(u_texture, clamp(uv + vec2(-texel.x * r,  texel.y * r) * 0.7, 0.0, 1.0)).rgb) * 0.05;
+  sum += luma(texture2D(u_texture, clamp(uv + vec2( texel.x * r,  texel.y * r) * 0.7, 0.0, 1.0)).rgb) * 0.05;
+  return sum;
+}
+
+void main() {
+  vec2 uv = v_texCoord;
+
+  // Rounded corners
+  if (roundedRectSDF(uv, vec2(1.0, 1.0), CORNER_RADIUS) > 0.0) {
+    gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+    return;
+  }
+
+  // Barrel distortion
+  vec2 curved = curveUV(uv);
+  if (curved.x < 0.0 || curved.x > 1.0 || curved.y < 0.0 || curved.y > 1.0) {
+    gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+    return;
+  }
+
+  // Core sample with edge defocus
+  float core = defocusedSample(curved);
+
+  // Very subtle bloom halo (beam spot softness)
+  float glow = softGlow(curved);
+
+  // Combine: core dominates, glow barely visible.
+  // The source canvas already has glow passes baked in.
+  float intensity = core * 0.92 + glow * 0.08;
+
+  // Map through phosphor color curve
+  vec3 color = phosphor(min(intensity, 1.0));
+
+  // ── Phosphor grain texture ──
+  // Real phosphor screens have a fine granular structure visible
+  // when the beam excites individual phosphor crystals.
+  vec2 grainCoord = gl_FragCoord.xy;
+  float grain = hash2(grainCoord) * 0.08 - 0.04;
+  // Grain is only visible where there's light (phosphor is excited)
+  color += grain * intensity;
+
+  // ── Glass surface reflection ──
+  // Vector CRT glass has a subtle ambient reflection — the screen
+  // is never truly pitch black, there's a very faint greenish tint
+  // from room light bouncing off the glass surface.
+  vec2 glassCoord = curved * 2.0 - 1.0;
+  float glassHighlight = 1.0 - dot(glassCoord, glassCoord) * 0.5;
+  glassHighlight = max(glassHighlight, 0.0);
+  color += vec3(0.003, 0.008, 0.004) * glassHighlight;
+
+  // ── Subtle analog noise ──
+  float n = (hash(gl_FragCoord.xy, u_time) - 0.5) * 0.01;
+  color += n;
+
+  // ── Gentle beam flicker ──
+  // Real oscilloscope displays have slight intensity wobble from
+  // power supply ripple.
+  float flicker = sin(u_time * 8.3) * 0.008 + sin(u_time * 17.1) * 0.004;
+  color *= 1.0 + flicker;
+
+  // ── Phosphor persistence / temporal decay ──
+  // Vector displays redraw continuously; phosphor glows and fades
+  // between refreshes. Moving lines leave decaying green trails.
+  // Flip Y when reading the FBO — our texcoords have v=0 at top
+  // (for HTML canvas), but FBO textures have v=0 at bottom (OpenGL).
+  vec3 prev = texture2D(u_prevFrame, vec2(uv.x, 1.0 - uv.y)).rgb;
+  color = max(color, prev * PHOSPHOR_DECAY);
+
+  gl_FragColor = vec4(clamp(color, 0.0, 1.0), 1.0);
+}
+`;
+
+// ── Passthrough shader (blit FBO to screen) ──
+const passthroughFragmentSource = `
+precision mediump float;
+uniform sampler2D u_texture;
+varying vec2 v_texCoord;
+void main() {
+  gl_FragColor = texture2D(u_texture, vec2(v_texCoord.x, 1.0 - v_texCoord.y));
+}
+`;
+
+// ── Overlay factory ──
+
+function compileGL(gl, src, type) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    console.error('Shader compile error:', gl.getShaderInfoLog(s));
+    gl.deleteShader(s);
+    return null;
+  }
+  return s;
+}
+
+function buildProgram(gl, vertSrc, fragSrc) {
+  const vs = compileGL(gl, vertSrc, gl.VERTEX_SHADER);
+  const fs = compileGL(gl, fragSrc, gl.FRAGMENT_SHADER);
+  const prog = gl.createProgram();
+  gl.attachShader(prog, vs);
+  gl.attachShader(prog, fs);
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+    console.error('Program link error:', gl.getProgramInfoLog(prog));
+    return null;
+  }
+  return {
+    program: prog,
+    aPosition: gl.getAttribLocation(prog, 'a_position'),
+    aTexCoord: gl.getAttribLocation(prog, 'a_texCoord'),
+    uResolution: gl.getUniformLocation(prog, 'u_resolution'),
+    uTime: gl.getUniformLocation(prog, 'u_time'),
+  };
+}
+
 export function createShaderOverlay(gameCanvas) {
-  // Create overlay canvas positioned absolutely over game canvas
   const overlay = document.createElement('canvas');
   overlay.style.position = 'absolute';
   overlay.style.pointerEvents = 'none';
   overlay.style.zIndex = '1000';
   overlay.id = 'scanline-overlay';
 
-  // Function to sync overlay position/size with game canvas
   const updateOverlayPosition = () => {
     const rect = gameCanvas.getBoundingClientRect();
     overlay.style.left = rect.left + 'px';
@@ -193,64 +359,62 @@ export function createShaderOverlay(gameCanvas) {
   window.addEventListener('resize', updateOverlayPosition);
   window.addEventListener('scroll', updateOverlayPosition);
 
-  // Initialize WebGL context
   const gl = overlay.getContext('webgl') || overlay.getContext('experimental-webgl');
-  if (!gl) {
-    console.error('WebGL not supported');
-    return null;
+  if (!gl) { console.error('WebGL not supported'); return null; }
+
+  // Build all programs
+  const programs = {
+    crt: buildProgram(gl, vertexShaderSource, crtFragmentSource),
+    vector: buildProgram(gl, vertexShaderSource, vectorFragmentSource),
+    passthrough: buildProgram(gl, vertexShaderSource, passthroughFragmentSource),
+  };
+
+  // Cached uniform locations for vector's phosphor persistence
+  const vectorUPrevFrame = gl.getUniformLocation(programs.vector.program, 'u_prevFrame');
+  const vectorUTexture = gl.getUniformLocation(programs.vector.program, 'u_texture');
+
+  // ── Framebuffer objects for phosphor persistence (ping-pong) ──
+  let fboA = null, fboB = null;
+  let fboW = 0, fboH = 0;
+  let pingPong = 0;
+
+  function makeFBO(w, h) {
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    const fb = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return { fb, tex };
   }
 
-  // Compile shaders
-  function compileShader(source, type) {
-    const shader = gl.createShader(type);
-    gl.shaderSource(shader, source);
-    gl.compileShader(shader);
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-      console.error('Shader compile error:', gl.getShaderInfoLog(shader));
-      gl.deleteShader(shader);
-      return null;
-    }
-    return shader;
+  function ensureFBOs(w, h) {
+    if (fboW === w && fboH === h) return;
+    if (fboA) { gl.deleteFramebuffer(fboA.fb); gl.deleteTexture(fboA.tex); }
+    if (fboB) { gl.deleteFramebuffer(fboB.fb); gl.deleteTexture(fboB.tex); }
+    fboA = makeFBO(w, h);
+    fboB = makeFBO(w, h);
+    fboW = w;
+    fboH = h;
+    pingPong = 0;
   }
 
-  const vertexShader = compileShader(vertexShaderSource, gl.VERTEX_SHADER);
-  const fragmentShader = compileShader(fragmentShaderSource, gl.FRAGMENT_SHADER);
-
-  // Link program
-  const program = gl.createProgram();
-  gl.attachShader(program, vertexShader);
-  gl.attachShader(program, fragmentShader);
-  gl.linkProgram(program);
-
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    console.error('Program link error:', gl.getProgramInfoLog(program));
-    return null;
-  }
-
-  gl.useProgram(program);
-
-  // Setup vertex buffer (full-screen quad)
-  const positions = new Float32Array([
+  // Shared full-screen quad
+  const buffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
     -1, -1,  0, 1,
      1, -1,  1, 1,
     -1,  1,  0, 0,
-     1,  1,  1, 0
-  ]);
+     1,  1,  1, 0,
+  ]), gl.STATIC_DRAW);
 
-  const buffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-  gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
-
-  const positionLoc = gl.getAttribLocation(program, 'a_position');
-  const texCoordLoc = gl.getAttribLocation(program, 'a_texCoord');
-
-  gl.enableVertexAttribArray(positionLoc);
-  gl.vertexAttribPointer(positionLoc, 2, gl.FLOAT, false, 16, 0);
-
-  gl.enableVertexAttribArray(texCoordLoc);
-  gl.vertexAttribPointer(texCoordLoc, 2, gl.FLOAT, false, 16, 8);
-
-  // Setup texture for game canvas
+  // Shared texture
   const texture = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, texture);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -258,42 +422,96 @@ export function createShaderOverlay(gameCanvas) {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 
-  const resolutionLoc = gl.getUniformLocation(program, 'u_resolution');
-  const timeLoc = gl.getUniformLocation(program, 'u_time');
-
   gl.clearColor(0, 0, 0, 0);
 
-  // Animation loop
+  let active = programs.crt;
+
+  function activateProgram(prog) {
+    active = prog;
+    gl.useProgram(prog.program);
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.enableVertexAttribArray(prog.aPosition);
+    gl.vertexAttribPointer(prog.aPosition, 2, gl.FLOAT, false, 16, 0);
+    gl.enableVertexAttribArray(prog.aTexCoord);
+    gl.vertexAttribPointer(prog.aTexCoord, 2, gl.FLOAT, false, 16, 8);
+  }
+
+  activateProgram(active);
+
   function render() {
     updateOverlayPosition();
-
-    // Skip rendering if canvas has no dimensions
-    if (overlay.width <= 0 || overlay.height <= 0) {
+    if (overlay.width <= 0 || overlay.height <= 0 ||
+        !gameCanvas || gameCanvas.width <= 0 || gameCanvas.height <= 0) {
       requestAnimationFrame(render);
       return;
     }
 
-    // Skip if game canvas isn't ready
-    if (!gameCanvas || gameCanvas.width <= 0 || gameCanvas.height <= 0) {
-      requestAnimationFrame(render);
-      return;
-    }
-
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    // Upload full-res game canvas (both pipelines use the same source;
+    // CRT shader handles pixelation internally via max-sample)
+    gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, texture);
-    // Copy game canvas to texture
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, gameCanvas);
 
-    gl.uniform2f(resolutionLoc, overlay.width, overlay.height);
-    gl.uniform1f(timeLoc, performance.now() / 1000);
+    if (active === programs.vector) {
+      // ── Vector mode: two-pass with phosphor persistence ──
+      ensureFBOs(overlay.width, overlay.height);
+      const writeFBO = pingPong === 0 ? fboA : fboB;
+      const readFBO  = pingPong === 0 ? fboB : fboA;
 
-    gl.viewport(0, 0, overlay.width, overlay.height);
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      // Pass 1: render vector shader → FBO, feeding previous frame
+      activateProgram(programs.vector);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, writeFBO.fb);
+      gl.viewport(0, 0, fboW, fboH);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+
+      // Game canvas on unit 0
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.uniform1i(vectorUTexture, 0);
+
+      // Previous frame on unit 1
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, readFBO.tex);
+      gl.uniform1i(vectorUPrevFrame, 1);
+
+      gl.uniform2f(programs.vector.uResolution, overlay.width, overlay.height);
+      gl.uniform1f(programs.vector.uTime, performance.now() / 1000);
+
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+      // Pass 2: blit FBO → screen
+      activateProgram(programs.passthrough);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, overlay.width, overlay.height);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, writeFBO.tex);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+      // Restore vector as active for tracking
+      active = programs.vector;
+      pingPong = 1 - pingPong;
+    } else {
+      // ── CRT mode: single-pass, no persistence ──
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, overlay.width, overlay.height);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+
+      gl.uniform2f(active.uResolution, overlay.width, overlay.height);
+      gl.uniform1f(active.uTime, performance.now() / 1000);
+
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
 
     requestAnimationFrame(render);
   }
 
   setTimeout(render, 50);
 
-  return overlay;
+  return {
+    overlay,
+    setShader(name) {
+      if (programs[name]) activateProgram(programs[name]);
+    },
+  };
 }

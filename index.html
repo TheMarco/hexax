@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>HEXAX</title>
   <style>
+    @font-face {
+      font-family: 'Hyperspace';
+      src: url('/fonts/hyperspace.ttf') format('truetype');
+      font-display: block;
+    }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body {
       margin: 0;
@@ -14,6 +19,7 @@
       width: 100%;
       height: 100%;
       display: flex;
+      flex-direction: column;
       justify-content: center;
       align-items: center;
     }
@@ -30,10 +36,38 @@
       image-rendering: pixelated;
       image-rendering: crisp-edges;
     }
+    #shader-toggle {
+      display: flex;
+      justify-content: center;
+      gap: 6px;
+      margin-top: 10px;
+    }
+    #shader-toggle button {
+      background: transparent;
+      border: 1px solid #7cffb2;
+      color: #7cffb2;
+      font-family: 'Hyperspace', monospace;
+      font-size: 13px;
+      padding: 3px 18px;
+      cursor: pointer;
+      letter-spacing: 1px;
+      transition: background 0.15s, color 0.15s;
+    }
+    #shader-toggle button:hover {
+      background: rgba(124, 255, 178, 0.15);
+    }
+    #shader-toggle button.active {
+      background: #7cffb2;
+      color: #000;
+    }
   </style>
 </head>
 <body>
   <div id="game-container"></div>
+  <div id="shader-toggle">
+    <button class="active" data-shader="crt">CRT</button>
+    <button data-shader="vector">VECTOR</button>
+  </div>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

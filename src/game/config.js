@@ -1,26 +1,24 @@
 export const CONFIG = Object.freeze({
   NUM_LANES: 6,
   NUM_SEGMENTS: 7,
-  MAX_DEPTH: 6, // NUM_SEGMENTS - 1
+  MAX_DEPTH: 6,
   PLAYER_DEPTH: 0,
+  VISUAL_OFFSET: 2,
 
   TICK_MS: 800,
+  BULLET_TICK_MS: 200,
+  FIRE_COOLDOWN_BULLET_TICKS: 2,
 
-  R0: 83,
+  R0: 249,
   SCALE_MIN: 0.05,
   SCALE_POWER: 0.5,
-  ANGLE_OFFSET: -Math.PI / 3, // flat-bottom hex (30° from pointy-top)
+  ANGLE_OFFSET: -Math.PI / 3,
 
-  WIDTH: 256,
-  HEIGHT: 224,
-  CENTER_X: 128,
-  CENTER_Y: 127, // slightly below center
-  GAME_SCALE: 3,
+  WIDTH: 768,
+  HEIGHT: 672,
+  CENTER_X: 384,
+  CENTER_Y: 381,
 
-  BULLET_TICK_MS: 200, // bullets move 1 segment per this interval
-  FIRE_COOLDOWN_BULLET_TICKS: 2, // cooldown in bullet ticks (400ms)
-
-  // Spawn ramp: [elapsed_ms_threshold, ticks_between_spawns]
   SPAWN_RAMP: [
     [0, 4],
     [20000, 3],

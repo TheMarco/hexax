@@ -1,14 +1,14 @@
 import { CONFIG } from '../config.js';
 
 const PARTICLE_COUNT = 16;
-const PARTICLE_SPEED = 64;
+const PARTICLE_SPEED = 192;
 const PARTICLE_LIFE_MS = 600;
-const TAIL_LENGTH = 5;
+const TAIL_LENGTH = 15;
 
 const GLOW_PASSES = [
-  { width: 2.5, alpha: 0.15 },
-  { width: 1.3, alpha: 0.4 },
-  { width: 0.5, alpha: 1.0 },
+  { width: 8, alpha: 0.15 },
+  { width: 4, alpha: 0.4 },
+  { width: 1.5, alpha: 1.0 },
 ];
 
 export class ExplosionRenderer {

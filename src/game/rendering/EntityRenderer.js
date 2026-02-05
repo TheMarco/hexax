@@ -25,16 +25,16 @@ export class EntityRenderer {
         const pos = this.geometry.getMidpointLerp(visualDepth, visualLane, rotAngle);
         if (pos) {
           const scale = this.geometry.getScaleLerp(visualDepth);
-          const size = 7 * scale;
+          const size = 22 * scale;
 
           if (enemy.type === 'tank') {
             if (enemy.hp >= 2) {
-              drawGlowClaw(gfx, pos.x, pos.y, Math.max(size, 2), CONFIG.COLORS.TANK);
+              drawGlowClaw(gfx, pos.x, pos.y, Math.max(size, 5), CONFIG.COLORS.TANK);
             } else {
-              this._drawCrackedDiamond(gfx, pos.x, pos.y, Math.max(size, 2), CONFIG.COLORS.TANK_DAMAGED);
+              this._drawCrackedDiamond(gfx, pos.x, pos.y, Math.max(size, 5), CONFIG.COLORS.TANK_DAMAGED);
             }
           } else {
-            drawGlowClaw(gfx, pos.x, pos.y, Math.max(size, 1.5), CONFIG.COLORS.ENEMY);
+            drawGlowClaw(gfx, pos.x, pos.y, Math.max(size, 4), CONFIG.COLORS.ENEMY);
           }
         }
       }
@@ -56,8 +56,8 @@ export class EntityRenderer {
         const pos = this.geometry.getMidpointLerp(visualDepth, visualLane, rotAngle);
         if (pos) {
           const scale = this.geometry.getScaleLerp(visualDepth);
-          const size = 2 * scale;
-          drawGlowDiamond(gfx, pos.x, pos.y, Math.max(size, 1), CONFIG.COLORS.BULLET);
+          const size = 5 * scale;
+          drawGlowDiamond(gfx, pos.x, pos.y, Math.max(size, 2), CONFIG.COLORS.BULLET);
         }
       }
     }
@@ -102,7 +102,7 @@ export class EntityRenderer {
     const dx = CONFIG.CENTER_X - mx;
     const dy = CONFIG.CENTER_Y - my;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const wallHeight = 14 * this.geometry.getScaleLerp(depth);
+    const wallHeight = 44 * this.geometry.getScaleLerp(depth);
     const nx = (dx / dist) * wallHeight;
     const ny = (dy / dist) * wallHeight;
 
@@ -131,7 +131,7 @@ export class EntityRenderer {
     const dx = CONFIG.CENTER_X - spanMx;
     const dy = CONFIG.CENTER_Y - spanMy;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const wallHeight = 14 * this.geometry.getScaleLerp(depth);
+    const wallHeight = 44 * this.geometry.getScaleLerp(depth);
     const nx = (dx / dist) * wallHeight;
     const ny = (dy / dist) * wallHeight;
 
@@ -172,7 +172,7 @@ export class EntityRenderer {
     const visualLane = (0 + visualOffset) % CONFIG.NUM_LANES;
     const pos = this.geometry.getMidpoint(0, visualLane, rotAngle);
 
-    const size = 4;
+    const size = 12;
     const cx = CONFIG.CENTER_X;
     const cy = CONFIG.CENTER_Y;
     const dx = cx - pos.x;
