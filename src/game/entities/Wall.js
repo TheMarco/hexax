@@ -6,6 +6,7 @@ export class Wall extends Entity {
   }
 
   tick() {
+    this.prevDepth = this.depth;
     this.depth -= 1;
   }
 }

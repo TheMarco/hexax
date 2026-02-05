@@ -6,28 +6,36 @@ export class EntityRenderer {
     this.geometry = geometry;
   }
 
-  draw(gfx, state, entityManager, visualOffset, rotAngle = 0, bulletLerp = 0) {
+  draw(gfx, state, entityManager, visualOffset, rotAngle = 0, bulletLerp = 0, enemyLerp = 0) {
     this._drawShip(gfx, visualOffset, rotAngle);
 
-    // Enemies (including tanks): discrete positions
+    // Enemies (including tanks): smooth interpolated positions
     for (const enemy of entityManager.enemies) {
       const renderLane = state.getRenderLane(enemy.lane);
       const visualLane = (renderLane + visualOffset) % CONFIG.NUM_LANES;
-      if (enemy.depth >= 0 && enemy.depth <= CONFIG.MAX_DEPTH) {
-        const pos = this.geometry.getMidpoint(enemy.depth, visualLane, rotAngle);
-        const size = 22 * this.geometry.scales[enemy.depth];
 
-        if (enemy.type === 'tank') {
-          if (enemy.hp >= 2) {
-            // Full health: bright blue claw
-            drawGlowClaw(gfx, pos.x, pos.y, Math.max(size, 5), CONFIG.COLORS.TANK);
+      let visualDepth;
+      if (!enemy.alive) {
+        visualDepth = enemy.depth;
+      } else {
+        visualDepth = enemy.prevDepth + (enemy.depth - enemy.prevDepth) * enemyLerp;
+      }
+
+      if (visualDepth >= 0 && visualDepth <= CONFIG.MAX_DEPTH) {
+        const pos = this.geometry.getMidpointLerp(visualDepth, visualLane, rotAngle);
+        if (pos) {
+          const scale = this.geometry.getScaleLerp(visualDepth);
+          const size = 22 * scale;
+
+          if (enemy.type === 'tank') {
+            if (enemy.hp >= 2) {
+              drawGlowClaw(gfx, pos.x, pos.y, Math.max(size, 5), CONFIG.COLORS.TANK);
+            } else {
+              this._drawCrackedDiamond(gfx, pos.x, pos.y, Math.max(size, 5), CONFIG.COLORS.TANK_DAMAGED);
+            }
           } else {
-            // Damaged: cracked diamond in lighter blue
-            this._drawCrackedDiamond(gfx, pos.x, pos.y, Math.max(size, 5), CONFIG.COLORS.TANK_DAMAGED);
+            drawGlowClaw(gfx, pos.x, pos.y, Math.max(size, 4), CONFIG.COLORS.ENEMY);
           }
-        } else {
-          // Regular enemy: orange claw
-          drawGlowClaw(gfx, pos.x, pos.y, Math.max(size, 4), CONFIG.COLORS.ENEMY);
         }
       }
     }
@@ -54,23 +62,39 @@ export class EntityRenderer {
       }
     }
 
-    // Walls: rectangular slab on the hex edge with inward height
+    // Walls: smooth interpolated slab
     for (const wall of entityManager.walls) {
       const renderLane = state.getRenderLane(wall.lane);
       const visualLane = (renderLane + visualOffset) % CONFIG.NUM_LANES;
-      if (wall.depth >= 0 && wall.depth <= CONFIG.MAX_DEPTH) {
-        this._drawWallSlab(gfx, wall.depth, visualLane, rotAngle);
+
+      let visualDepth;
+      if (!wall.alive) {
+        visualDepth = wall.depth;
+      } else {
+        visualDepth = wall.prevDepth + (wall.depth - wall.prevDepth) * enemyLerp;
+      }
+
+      if (visualDepth >= 0 && visualDepth <= CONFIG.MAX_DEPTH) {
+        this._drawWallSlab(gfx, visualDepth, visualLane, rotAngle);
       }
     }
 
-    // Double walls: span two adjacent faces
+    // Double walls: smooth interpolated slab spanning two faces
     for (const dw of entityManager.doublewalls) {
       const renderLane1 = state.getRenderLane(dw.lane);
       const visualLane1 = (renderLane1 + visualOffset) % CONFIG.NUM_LANES;
       const renderLane2 = state.getRenderLane(dw.lane2);
       const visualLane2 = (renderLane2 + visualOffset) % CONFIG.NUM_LANES;
-      if (dw.depth >= 0 && dw.depth <= CONFIG.MAX_DEPTH) {
-        this._drawDoubleWallSlab(gfx, dw.depth, visualLane1, visualLane2, rotAngle);
+
+      let visualDepth;
+      if (!dw.alive) {
+        visualDepth = dw.depth;
+      } else {
+        visualDepth = dw.prevDepth + (dw.depth - dw.prevDepth) * enemyLerp;
+      }
+
+      if (visualDepth >= 0 && visualDepth <= CONFIG.MAX_DEPTH) {
+        this._drawDoubleWallSlab(gfx, visualDepth, visualLane1, visualLane2, rotAngle);
       }
     }
   }
@@ -78,15 +102,16 @@ export class EntityRenderer {
   _drawWallSlab(gfx, depth, visualLane, rotAngle) {
     const nextVertex = (visualLane + 1) % CONFIG.NUM_LANES;
 
-    const v1 = this.geometry.getVertex(depth, visualLane, rotAngle);
-    const v2 = this.geometry.getVertex(depth, nextVertex, rotAngle);
+    const v1 = this.geometry.getVertexLerp(depth, visualLane, rotAngle);
+    const v2 = this.geometry.getVertexLerp(depth, nextVertex, rotAngle);
+    if (!v1 || !v2) return;
 
     const mx = (v1.x + v2.x) / 2;
     const my = (v1.y + v2.y) / 2;
     const dx = CONFIG.CENTER_X - mx;
     const dy = CONFIG.CENTER_Y - my;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const wallHeight = 44 * this.geometry.scales[depth];
+    const wallHeight = 44 * this.geometry.getScaleLerp(depth);
     const nx = (dx / dist) * wallHeight;
     const ny = (dy / dist) * wallHeight;
 
@@ -103,18 +128,17 @@ export class EntityRenderer {
   }
 
   _drawDoubleWallSlab(gfx, depth, visualLane1, visualLane2, rotAngle) {
-    // Spanning from visualLane1's first vertex to visualLane2's second vertex (3 vertices total)
-    const v1 = this.geometry.getVertex(depth, visualLane1, rotAngle);
-    const vMid = this.geometry.getVertex(depth, (visualLane1 + 1) % CONFIG.NUM_LANES, rotAngle);
-    const v3 = this.geometry.getVertex(depth, (visualLane2 + 1) % CONFIG.NUM_LANES, rotAngle);
+    const v1 = this.geometry.getVertexLerp(depth, visualLane1, rotAngle);
+    const vMid = this.geometry.getVertexLerp(depth, (visualLane1 + 1) % CONFIG.NUM_LANES, rotAngle);
+    const v3 = this.geometry.getVertexLerp(depth, (visualLane2 + 1) % CONFIG.NUM_LANES, rotAngle);
+    if (!v1 || !vMid || !v3) return;
 
-    // Inward normal from the midpoint of the span
     const spanMx = (v1.x + v3.x) / 2;
     const spanMy = (v1.y + v3.y) / 2;
     const dx = CONFIG.CENTER_X - spanMx;
     const dy = CONFIG.CENTER_Y - spanMy;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const wallHeight = 44 * this.geometry.scales[depth];
+    const wallHeight = 44 * this.geometry.getScaleLerp(depth);
     const nx = (dx / dist) * wallHeight;
     const ny = (dy / dist) * wallHeight;
 
@@ -141,9 +165,7 @@ export class EntityRenderer {
   }
 
   _drawCrackedDiamond(gfx, cx, cy, size, color) {
-    // Diamond outline
     drawGlowDiamond(gfx, cx, cy, size, color);
-    // Inner crack: X through the diamond
     const s = size * 0.6;
     drawGlowLine(gfx, cx - s, cy - s, cx + s, cy + s, color);
     drawGlowLine(gfx, cx + s, cy - s, cx - s, cy + s, color);

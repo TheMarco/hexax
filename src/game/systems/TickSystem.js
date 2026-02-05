@@ -7,6 +7,7 @@ export class TickSystem {
     this.entityManager = entityManager;
     this.collisionSystem = collisionSystem;
     this.spawnSystem = spawnSystem;
+    this.onEnemyMove = null; // callback(depthSet) after entities move
 
     // Slow timer: enemies move, spawn, game-over check
     this.enemyTimer = scene.time.addEvent({
@@ -40,6 +41,21 @@ export class TickSystem {
     }
     for (const dw of this.entityManager.doublewalls) {
       if (dw.alive) dw.tick();
+    }
+
+    // Notify ring flash — entities just arrived at new depths
+    if (this.onEnemyMove) {
+      const depths = new Set();
+      for (const e of this.entityManager.enemies) {
+        if (e.alive && e.depth >= 0) depths.add(e.depth);
+      }
+      for (const w of this.entityManager.walls) {
+        if (w.alive && w.depth >= 0) depths.add(w.depth);
+      }
+      for (const dw of this.entityManager.doublewalls) {
+        if (dw.alive && dw.depth >= 0) depths.add(dw.depth);
+      }
+      this.onEnemyMove(depths);
     }
 
     // Collisions (enemy may have moved into a bullet)

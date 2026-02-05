@@ -7,6 +7,7 @@ export class Tank extends Entity {
   }
 
   tick() {
+    this.prevDepth = this.depth;
     this.depth -= 1;
   }
 

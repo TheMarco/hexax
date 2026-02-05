@@ -70,6 +70,23 @@ export class TunnelGeometry {
     return rotAngle === 0 ? pt : this._rotate(pt, rotAngle);
   }
 
+  getVertexLerp(depth, vertexIndex, rotAngle = 0) {
+    const d0 = Math.floor(depth);
+    const d1 = Math.ceil(depth);
+    const frac = depth - d0;
+
+    if (d0 < 0 || d1 > CONFIG.MAX_DEPTH) return null;
+    if (d0 === d1) return this.getVertex(d0, vertexIndex, rotAngle);
+
+    const p0 = this.rings[d0][vertexIndex];
+    const p1 = this.rings[d1][vertexIndex];
+    const pt = {
+      x: p0.x + (p1.x - p0.x) * frac,
+      y: p0.y + (p1.y - p0.y) * frac,
+    };
+    return rotAngle === 0 ? pt : this._rotate(pt, rotAngle);
+  }
+
   getScaleLerp(depth) {
     const d0 = Math.floor(depth);
     const d1 = Math.ceil(depth);
