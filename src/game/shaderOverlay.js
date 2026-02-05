@@ -23,12 +23,12 @@ varying vec2 v_texCoord;
 
 #define PI 3.14159265359
 #define BLOOM_STRENGTH 0.5
-#define SCANLINE_STRENGTH 0.5
+#define SCANLINE_STRENGTH 0.7
 #define MASK_STRENGTH 0.08
 #define NOISE_STRENGTH 0.025
 #define FLICKER_STRENGTH 0.08
 #define ABERRATION_STRENGTH 0.0
-#define CURVATURE_STRENGTH 0.02
+#define CURVATURE_STRENGTH 0.04
 #define CORNER_RADIUS 0.15
 
 // Fast gamma approximation
@@ -179,9 +179,9 @@ varying vec2 v_texCoord;
 // Full-resolution texel size (768x672)
 const vec2 texel = vec2(1.0 / 768.0, 1.0 / 672.0);
 
-#define CURVATURE 0.02
+#define CURVATURE 0.04
 #define CORNER_RADIUS 0.08
-#define PHOSPHOR_DECAY 0.82
+#define PHOSPHOR_DECAY 0.65
 
 float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 
@@ -289,7 +289,7 @@ void main() {
 
   // Combine: core dominates, glow barely visible.
   // The source canvas already has glow passes baked in.
-  float intensity = core * 0.92 + glow * 0.08;
+  float intensity = core * 0.72 + glow * 0.08;
 
   // Map through phosphor color curve
   vec3 color = phosphor(min(intensity, 1.0));

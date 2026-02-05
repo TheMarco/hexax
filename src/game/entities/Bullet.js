@@ -5,6 +5,8 @@ export class Bullet extends Entity {
   constructor(lane, depth) {
     super(lane, depth, 'bullet');
     this.prevDepth = depth;
+    // Support fractional starting depth (e.g., 0.5)
+    this.depth = depth;
   }
 
   tick() {

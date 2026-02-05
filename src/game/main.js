@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { CONFIG } from './config.js';
+import { TitleScene } from './scenes/TitleScene.js';
 import { GameScene } from './scenes/GameScene.js';
 
 export function StartGame(containerId) {
@@ -9,7 +10,7 @@ export function StartGame(containerId) {
     width: CONFIG.WIDTH,
     height: CONFIG.HEIGHT,
     backgroundColor: CONFIG.COLORS.BG,
-    scene: [GameScene],
+    scene: [TitleScene, GameScene],
     render: {
       pixelArt: false,
       antialias: true,

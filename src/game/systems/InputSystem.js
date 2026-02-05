@@ -7,6 +7,7 @@ export class InputSystem {
     this.scene = scene;
     this.state = state;
     this.entityManager = entityManager;
+    this.onFire = null; // callback when bullet is fired
 
     this._pendingLeft = false;
     this._pendingRight = false;
@@ -45,13 +46,10 @@ export class InputSystem {
   _fire() {
     if (this.state.fireCooldown > 0) return;
     const lane = this.state.worldRot;
-    // Only one bullet per lane at a time
-    const alreadyOnLane = this.entityManager.bullets.some(
-      b => b.alive && b.lane === lane
-    );
-    if (alreadyOnLane) return;
-    this.entityManager.addBullet(new Bullet(lane, 0));
+    // Spawn bullet at depth 0.2 (just past the gun barrel tip)
+    this.entityManager.addBullet(new Bullet(lane, 0.2));
     this.state.fireCooldown = CONFIG.FIRE_COOLDOWN_BULLET_TICKS;
+    if (this.onFire) this.onFire();
   }
 
   _clearPending() {

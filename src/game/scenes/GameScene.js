@@ -11,6 +11,8 @@ import { CollisionSystem } from '../systems/CollisionSystem.js';
 import { SpawnSystem } from '../systems/SpawnSystem.js';
 import { HUD } from '../hud/HUD.js';
 import { ExplosionRenderer } from '../rendering/ExplosionRenderer.js';
+import { TunnelExplosionRenderer } from '../rendering/TunnelExplosionRenderer.js';
+import { SoundEngine } from '../audio/SoundEngine.js';
 
 const STEP_ANGLE = Math.PI / 3; // 60° per lane
 const ROT_DURATION_MS = 150;    // total time for smooth 60° rotation
@@ -22,12 +24,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
+    this.sound = new SoundEngine();
+    // Initialize audio immediately (will resume on first user interaction if needed)
+    this.sound.init();
     this.geometry = new TunnelGeometry();
     this.tunnelRenderer = new TunnelRenderer(this.geometry);
     this.entityRenderer = new EntityRenderer(this.geometry);
     this.state = new GameState();
     this.entityManager = new EntityManager();
     this.explosionRenderer = new ExplosionRenderer();
+    this.tunnelExplosion = new TunnelExplosionRenderer(this.geometry);
     this.collisionSystem = new CollisionSystem(this.entityManager, this.state);
     this.collisionSystem.onHit = (lane, depth, prevDepth, color) => {
       const VISUAL_OFFSET = 2;
@@ -37,10 +43,18 @@ export class GameScene extends Phaser.Scene {
       const visualDepth = prevDepth + (depth - prevDepth) * enemyLerp;
       const pos = this.geometry.getMidpointLerp(visualDepth, visualLane, this._rotAngle);
       this.explosionRenderer.spawn(pos.x, pos.y, color);
+      this.sound.playExplosion();
     };
     this.spawnSystem = new SpawnSystem(this.entityManager, this.state);
     this.inputSystem = new InputSystem(this, this.state, this.entityManager);
+    this.inputSystem.onFire = () => {
+      this.sound.playFire();
+    };
     this.tickSystem = new TickSystem(this, this.state, this.entityManager, this.collisionSystem, this.spawnSystem);
+    this.tickSystem.onGameOver = () => {
+      this.tunnelExplosion.trigger();
+      this.sound.playTunnelExplosion();
+    };
     this.hud = new HUD(this);
 
     // Ring flash: intensity per ring, set to 1.0 when entities arrive
@@ -62,6 +76,11 @@ export class GameScene extends Phaser.Scene {
     this._rotElapsed = 0;     // ms elapsed since rotation started
     this._rotActive = false;  // animation in progress
     this._rotDir = 0;         // +1 or -1
+
+    // Play get ready sound on game start (delay to ensure audio context initialized)
+    this.time.delayedCall(500, () => {
+      this.sound.playGetReady();
+    });
   }
 
   get isRotating() {
@@ -74,6 +93,7 @@ export class GameScene extends Phaser.Scene {
     this._rotTarget = direction * STEP_ANGLE;
     this._rotElapsed = 0;
     this._rotActive = true;
+    this.sound.playRotate();
   }
 
   update(time, delta) {
@@ -115,10 +135,16 @@ export class GameScene extends Phaser.Scene {
     const enemyLerp = this.tickSystem.enemyTimer.getProgress();
 
     this.explosionRenderer.update(delta);
+    this.tunnelExplosion.update(delta);
 
-    this.tunnelRenderer.draw(this.gfx, activeFaceVertex, this._rotAngle, this._ringFlash);
-    this.entityRenderer.draw(this.gfx, this.state, this.entityManager, VISUAL_OFFSET, this._rotAngle, bulletLerp, enemyLerp);
+    // Only draw tunnel/entities if not game over
+    if (!this.state.gameOver) {
+      this.tunnelRenderer.draw(this.gfx, activeFaceVertex, this._rotAngle, this._ringFlash);
+      this.entityRenderer.draw(this.gfx, this.state, this.entityManager, VISUAL_OFFSET, this._rotAngle, bulletLerp, enemyLerp);
+    }
+
     this.explosionRenderer.draw(this.gfx);
+    this.tunnelExplosion.draw(this.gfx);
     this.hud.update();
   }
 }

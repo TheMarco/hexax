@@ -172,22 +172,43 @@ export class EntityRenderer {
     const visualLane = (0 + visualOffset) % CONFIG.NUM_LANES;
     const pos = this.geometry.getMidpoint(0, visualLane, rotAngle);
 
-    const size = 12;
     const cx = CONFIG.CENTER_X;
     const cy = CONFIG.CENTER_Y;
     const dx = cx - pos.x;
     const dy = cy - pos.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const nx = dx / dist;
+    const nx = dx / dist;  // normal toward center
     const ny = dy / dist;
 
-    const px = -ny;
+    const px = -ny;  // perpendicular
     const py = nx;
 
-    const tip = { x: pos.x + nx * size, y: pos.y + ny * size };
-    const left = { x: pos.x - px * size * 0.6, y: pos.y - py * size * 0.6 };
-    const right = { x: pos.x + px * size * 0.6, y: pos.y + py * size * 0.6 };
+    // Gun turret design (Vectrex style)
+    const baseWidth = 14;
+    const baseDepth = 8;
+    const barrelLength = 20;
+    const barrelBaseWidth = 6;
+    const barrelTipWidth = 2;
 
-    drawGlowPolygon(gfx, [tip, left, right], CONFIG.COLORS.SHIP);
+    // Base platform (rectangle sitting ON the rim line, extending inward)
+    const baseLeft = { x: pos.x - px * baseWidth, y: pos.y - py * baseWidth };
+    const baseRight = { x: pos.x + px * baseWidth, y: pos.y + py * baseWidth };
+    const baseBackLeft = { x: baseLeft.x + nx * baseDepth, y: baseLeft.y + ny * baseDepth };
+    const baseBackRight = { x: baseRight.x + nx * baseDepth, y: baseRight.y + ny * baseDepth };
+
+    // Barrel (trapezoid taper from base to tip)
+    const barrelBase = { x: pos.x + nx * baseDepth, y: pos.y + ny * baseDepth };
+    const barrelLeft = { x: barrelBase.x - px * barrelBaseWidth, y: barrelBase.y - py * barrelBaseWidth };
+    const barrelRight = { x: barrelBase.x + px * barrelBaseWidth, y: barrelBase.y + py * barrelBaseWidth };
+
+    const barrelTipCenter = { x: pos.x + nx * (baseDepth + barrelLength), y: pos.y + ny * (baseDepth + barrelLength) };
+    const barrelTipLeft = { x: barrelTipCenter.x - px * barrelTipWidth, y: barrelTipCenter.y - py * barrelTipWidth };
+    const barrelTipRight = { x: barrelTipCenter.x + px * barrelTipWidth, y: barrelTipCenter.y + py * barrelTipWidth };
+
+    // Draw base platform
+    drawGlowPolygon(gfx, [baseLeft, baseRight, baseBackRight, baseBackLeft], CONFIG.COLORS.SHIP);
+
+    // Draw barrel (trapezoid)
+    drawGlowPolygon(gfx, [barrelLeft, barrelRight, barrelTipRight, barrelTipLeft], CONFIG.COLORS.SHIP);
   }
 }

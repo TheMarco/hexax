@@ -7,7 +7,7 @@ export const CONFIG = Object.freeze({
 
   TICK_MS: 800,
   BULLET_TICK_MS: 200,
-  FIRE_COOLDOWN_BULLET_TICKS: 2,
+  FIRE_COOLDOWN_BULLET_TICKS: 1.5,
 
   R0: 249,
   SCALE_MIN: 0.05,

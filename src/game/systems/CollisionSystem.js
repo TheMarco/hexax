@@ -12,9 +12,10 @@ export class CollisionSystem {
 
     for (const bullet of bullets) {
       if (!bullet.alive) continue;
+      const bulletDepth = Math.floor(bullet.depth);
       for (const enemy of enemies) {
         if (!enemy.alive) continue;
-        if (bullet.depth === enemy.depth && bullet.lane === enemy.lane) {
+        if (bulletDepth === enemy.depth && bullet.lane === enemy.lane) {
           bullet.kill();
 
           if (enemy.type === 'tank') {

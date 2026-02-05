@@ -8,6 +8,7 @@ export class TickSystem {
     this.collisionSystem = collisionSystem;
     this.spawnSystem = spawnSystem;
     this.onEnemyMove = null; // callback(depthSet) after entities move
+    this.onGameOver = null;  // callback() when player dies
 
     // Slow timer: enemies move, spawn, game-over check
     this.enemyTimer = scene.time.addEvent({
@@ -31,40 +32,6 @@ export class TickSystem {
 
     // Cleanup from previous enemy tick (lets dead enemies/walls render one full cycle)
     this.entityManager.removeDeadEnemiesAndWalls();
-
-    // Game-over checks BEFORE ticking — entities at depth 0 have had the
-    // full 800ms lerp to visually arrive at the rim since last tick
-    for (const enemy of this.entityManager.enemies) {
-      if (enemy.alive && enemy.depth <= 0) {
-        this.state.gameOver = true;
-        return;
-      }
-    }
-
-    for (const wall of this.entityManager.walls) {
-      if (wall.alive && wall.depth <= 0) {
-        const renderLane = this.state.getRenderLane(wall.lane);
-        if (renderLane === 0) {
-          this.state.gameOver = true;
-          return;
-        }
-        // Dodged — remove it
-        wall.kill();
-      }
-    }
-
-    for (const dw of this.entityManager.doublewalls) {
-      if (dw.alive && dw.depth <= 0) {
-        const renderLane1 = this.state.getRenderLane(dw.lane);
-        const renderLane2 = this.state.getRenderLane(dw.lane2);
-        if (renderLane1 === 0 || renderLane2 === 0) {
-          this.state.gameOver = true;
-          return;
-        }
-        // Dodged — remove it
-        dw.kill();
-      }
-    }
 
     // Move enemies and walls
     for (const e of this.entityManager.enemies) {
@@ -93,8 +60,47 @@ export class TickSystem {
       this.onEnemyMove(depths);
     }
 
-    // Collisions (enemy may have moved into a bullet)
+    // Collisions (player can shoot enemies that just reached depth 0)
     this.collisionSystem.resolve();
+
+    // Remove dead enemies immediately so game-over check doesn't see them
+    this.entityManager.removeDeadEnemies();
+
+    // Game-over checks — enemy went past player depth (depth < 0)
+    for (const enemy of this.entityManager.enemies) {
+      if (enemy.alive && enemy.depth < 0) {
+        this.state.gameOver = true;
+        if (this.onGameOver) this.onGameOver();
+        return;
+      }
+    }
+
+    for (const wall of this.entityManager.walls) {
+      if (wall.alive && wall.depth < 0) {
+        const renderLane = this.state.getRenderLane(wall.lane);
+        if (renderLane === 0) {
+          this.state.gameOver = true;
+          if (this.onGameOver) this.onGameOver();
+          return;
+        }
+        // Dodged — remove it
+        wall.kill();
+      }
+    }
+
+    for (const dw of this.entityManager.doublewalls) {
+      if (dw.alive && dw.depth < 0) {
+        const renderLane1 = this.state.getRenderLane(dw.lane);
+        const renderLane2 = this.state.getRenderLane(dw.lane2);
+        if (renderLane1 === 0 || renderLane2 === 0) {
+          this.state.gameOver = true;
+          if (this.onGameOver) this.onGameOver();
+          return;
+        }
+        // Dodged — remove it
+        dw.kill();
+      }
+    }
 
     // Spawn
     this.spawnSystem.maybeSpawn();
@@ -110,12 +116,16 @@ export class TickSystem {
     // Only clean bullets here — enemies/walls cleaned on their own timer
     this.entityManager.removeDeadBullets();
 
+    // Check collisions BEFORE moving (catch enemies at depth 0 where bullet spawned)
+    this.collisionSystem.resolve();
+    this.entityManager.removeDeadEnemies();
+
     // Move bullets
     for (const b of this.entityManager.bullets) {
       if (b.alive) b.tick();
     }
 
-    // Collisions (bullet may have moved into an enemy)
+    // Check collisions AFTER moving (bullet may have moved into an enemy)
     this.collisionSystem.resolve();
 
     // Remove dead enemies immediately so they vanish on hit (explosion already spawned)
