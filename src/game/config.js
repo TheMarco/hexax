@@ -6,15 +6,16 @@ export const CONFIG = Object.freeze({
 
   TICK_MS: 800,
 
-  R0: 260,
+  R0: 83,
   SCALE_MIN: 0.05,
   SCALE_POWER: 0.5,
   ANGLE_OFFSET: -Math.PI / 3, // flat-bottom hex (30° from pointy-top)
 
-  WIDTH: 800,
-  HEIGHT: 600,
-  CENTER_X: 400,
-  CENTER_Y: 340, // slightly below center
+  WIDTH: 256,
+  HEIGHT: 224,
+  CENTER_X: 128,
+  CENTER_Y: 127, // slightly below center
+  GAME_SCALE: 3,
 
   BULLET_TICK_MS: 200, // bullets move 1 segment per this interval
   FIRE_COOLDOWN_BULLET_TICKS: 2, // cooldown in bullet ticks (400ms)

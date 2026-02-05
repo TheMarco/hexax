@@ -5,16 +5,16 @@ export class HUD {
     this.scene = scene;
     this.state = scene.state;
 
-    this.scoreText = scene.add.text(16, 16, 'SCORE: 0', {
+    this.scoreText = scene.add.text(5, 5, 'SCORE: 0', {
       fontFamily: 'monospace',
-      fontSize: '20px',
+      fontSize: '7px',
       color: CONFIG.COLORS.HUD,
     });
     this.scoreText.setDepth(10);
 
-    this.gameOverText = scene.add.text(CONFIG.CENTER_X, CONFIG.CENTER_Y - 40, '', {
+    this.gameOverText = scene.add.text(CONFIG.CENTER_X, CONFIG.CENTER_Y - 13, '', {
       fontFamily: 'monospace',
-      fontSize: '28px',
+      fontSize: '9px',
       color: '#ffffff',
       align: 'center',
     });

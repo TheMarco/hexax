@@ -40,7 +40,7 @@ export class TunnelRenderer {
             const next = (k + 1) % NUM_LANES;
             const v1 = geo.getVertex(i, k, rotAngle);
             const v2 = geo.getVertex(i, next, rotAngle);
-            gfx.lineStyle(3, FLASH_COLOR, alpha * 0.7);
+            gfx.lineStyle(1, FLASH_COLOR, alpha * 0.7);
             gfx.beginPath();
             gfx.moveTo(v1.x, v1.y);
             gfx.lineTo(v2.x, v2.y);
