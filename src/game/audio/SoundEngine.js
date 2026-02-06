@@ -30,6 +30,7 @@ export class SoundEngine {
     this.loadSound('explosion', '/sounds/explode.mp3');
     this.loadSound('death', '/sounds/death.mp3');
     this.loadSound('hitwall', '/sounds/hitwall.mp3');
+    this.loadSound('heart', '/sounds/heart.mp3');
     this.loadSound('soundtrack', '/sounds/soundtrack.mp3');
   }
 
@@ -81,6 +82,10 @@ export class SoundEngine {
 
   playHitWall() {
     this.playSound('hitwall');
+  }
+
+  playHeart() {
+    this.playSound('heart');
   }
 
   startMusic() {

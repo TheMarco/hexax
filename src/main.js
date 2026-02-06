@@ -19,4 +19,28 @@ document.fonts.ready.then(() => {
       });
     });
   }, 100);
+
+  // Mobile controls — show on touch devices
+  const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  if (isTouchDevice) {
+    const controls = document.getElementById('mobile-controls');
+    controls.style.display = 'flex';
+
+    const sendKey = (keyCode, code, key) => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { keyCode, code, key, bubbles: true }));
+    };
+
+    document.getElementById('btn-left').addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      sendKey(37, 'ArrowLeft', 'ArrowLeft');
+    });
+    document.getElementById('btn-right').addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      sendKey(39, 'ArrowRight', 'ArrowRight');
+    });
+    document.getElementById('btn-fire').addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      sendKey(32, 'Space', ' ');
+    });
+  }
 });

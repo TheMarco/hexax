@@ -6,6 +6,7 @@ export class CollisionSystem {
     this.state = state;
     this.onHit = null; // callback(lane, depth, prevDepth, color) when a hit occurs
     this.onWallDeflect = null; // callback() when bullet hits a wall
+    this.onHeartCollect = null; // callback() when bullet hits a heart
   }
 
   resolve() {
@@ -52,6 +53,7 @@ export class CollisionSystem {
           if (enemy.type === 'heart') {
             enemy.kill();
             this.state.health = 100;
+            if (this.onHeartCollect) this.onHeartCollect();
             if (this.onHit) this.onHit(enemy.lane, enemy.depth, enemy.prevDepth, CONFIG.COLORS.HEART);
           } else if (enemy.type === 'bomb') {
             // Bomb: explode it and kill ALL alive enemies

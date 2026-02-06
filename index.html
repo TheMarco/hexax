@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>HEXAX</title>
   <style>
     @font-face {
@@ -60,6 +60,38 @@
       background: #7cffb2;
       color: #000;
     }
+    #mobile-controls {
+      display: none;
+      justify-content: center;
+      gap: 12px;
+      margin-top: 10px;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    #mobile-controls button {
+      background: transparent;
+      border: 2px solid #7cffb2;
+      color: #7cffb2;
+      font-family: 'Hyperspace', monospace;
+      font-size: 22px;
+      padding: 14px 0;
+      width: 100px;
+      cursor: pointer;
+      letter-spacing: 2px;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #mobile-controls button:active {
+      background: rgba(124, 255, 178, 0.25);
+    }
+    #mobile-controls button.fire-btn {
+      width: 140px;
+      border-color: #fff;
+      color: #fff;
+    }
+    #mobile-controls button.fire-btn:active {
+      background: rgba(255, 255, 255, 0.25);
+    }
   </style>
 </head>
 <body>
@@ -67,6 +99,11 @@
   <div id="shader-toggle">
     <button class="active" data-shader="crt">CRT</button>
     <button data-shader="vector">VECTOR</button>
+  </div>
+  <div id="mobile-controls">
+    <button id="btn-left">LEFT</button>
+    <button id="btn-fire" class="fire-btn">FIRE</button>
+    <button id="btn-right">RIGHT</button>
   </div>
   <script type="module" src="/src/main.js"></script>
 </body>

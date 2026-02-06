@@ -24,6 +24,9 @@ export class InputSystem {
       if (this._queue.length < MAX_QUEUE) this._queue.push('fire');
     });
     scene.input.keyboard.on('keydown-R', () => { this._pendingRestart = true; });
+    scene.input.keyboard.on('keydown-SPACE', () => {
+      if (this.state.gameOver) this._pendingRestart = true;
+    });
   }
 
   update() {

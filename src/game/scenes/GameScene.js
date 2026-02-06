@@ -40,6 +40,9 @@ export class GameScene extends Phaser.Scene {
     this.collisionSystem.onWallDeflect = () => {
       this.sound.playHitWall();
     };
+    this.collisionSystem.onHeartCollect = () => {
+      this.sound.playHeart();
+    };
     this.collisionSystem.onHit = (lane, depth, prevDepth, color) => {
       const VISUAL_OFFSET = 2;
       const renderLane = this.state.getRenderLane(lane);
