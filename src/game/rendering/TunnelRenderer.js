@@ -1,5 +1,5 @@
 import { CONFIG } from '../config.js';
-import { drawGlowLine } from './GlowRenderer.js';
+import { drawGlowLine, drawGlowDashedLine } from './GlowRenderer.js';
 
 const FLASH_COLOR = 0xffffff;
 
@@ -24,7 +24,7 @@ export class TunnelRenderer {
     this.geometry = geometry;
   }
 
-  draw(gfx, activeLaneIndex, rotAngle = 0, ringFlash = null) {
+  draw(gfx, activeLaneIndex, rotAngle = 0, ringFlash = null, segmentDamage = null) {
     const { NUM_SEGMENTS, NUM_LANES } = CONFIG;
     const geo = this.geometry;
 
@@ -34,7 +34,12 @@ export class TunnelRenderer {
         const next = (k + 1) % NUM_LANES;
         const v1 = geo.getVertex(i, k, rotAngle);
         const v2 = geo.getVertex(i, next, rotAngle);
-        drawGlowLine(gfx, v1.x, v1.y, v2.x, v2.y, TUNNEL_DIM);
+        // Outer ring (i===0): dashed if that segment is damaged
+        if (i === 0 && segmentDamage && segmentDamage[k]) {
+          drawGlowDashedLine(gfx, v1.x, v1.y, v2.x, v2.y, 0xff4444, 4);
+        } else {
+          drawGlowLine(gfx, v1.x, v1.y, v2.x, v2.y, TUNNEL_DIM);
+        }
       }
     }
 

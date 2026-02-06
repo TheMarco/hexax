@@ -12,12 +12,19 @@ npm run build  # production build to dist/
 
 ## Controls
 
+### Desktop
 | Key         | Action                        |
 |-------------|-------------------------------|
 | Left Arrow  | Rotate world left (60°)       |
 | Right Arrow | Rotate world right (60°)      |
-| Space       | Fire bullet                   |
+| Space       | Fire bullet / Restart         |
 | R           | Restart (game over screen)    |
+
+### Mobile
+Touch controls via backdrop cabinet (`backdropnew.png`):
+- **LEFT / RIGHT** buttons: rotate
+- **FIRE** button: fire / start game / restart on game over
+- **DISPLAY MODE** button: toggle CRT ↔ Vector shader
 
 ---
 
@@ -29,7 +36,7 @@ npm run build  # production build to dist/
 - ES modules, no TypeScript, no bundler plugins
 
 ### Entry Point
-`index.html` → `src/main.js` → `src/game/main.js` (creates Phaser.Game) → `GameScene`
+`index.html` → `src/main.js` → `src/game/main.js` (creates Phaser.Game) → `TitleScene` → `GameScene`
 
 ### File Structure
 
@@ -52,10 +59,10 @@ src/
     │   ├── Bullet.js                # type:'bullet', prevDepth for lerp, tick() → depth += 1
     │   └── EntityManager.js         # Arrays: enemies[], bullets[], walls[], doublewalls[]
     ├── systems/
-    │   ├── InputSystem.js           # Keyboard events → pending flags, consumed in update()
-    │   ├── TickSystem.js            # Two Phaser timers: enemyTimer (800ms), bulletTimer (200ms)
-    │   ├── CollisionSystem.js       # bullet×enemy grid check, tank HP, bomb chain, heart heal, onHit callback
-    │   └── SpawnSystem.js           # Weighted random spawn with ramp
+    │   ├── InputSystem.js           # FIFO input queue (max 4), rotations block until animation completes
+    │   ├── TickSystem.js            # Two Phaser timers: enemyTimer (dynamic), bulletTimer (200ms)
+    │   ├── CollisionSystem.js       # bullet×wall deflect, bullet×enemy grid check, tank HP, bomb chain, heart heal
+    │   └── SpawnSystem.js           # Weighted spawn with entity gating, wall density cap, pattern moments
     ├── rendering/
     │   ├── GlowRenderer.js          # drawGlowLine, drawGlowPolygon, drawGlowDiamond, drawGlowClaw, drawGlowCircle, drawGlowEllipse, drawGlowArc
     │   ├── TunnelGeometry.js        # Real-time 3D projection: _computeVertex, _computeMidpoint, getVertexAtRadius
@@ -64,11 +71,19 @@ src/
     │   ├── ExplosionRenderer.js     # 16-particle burst with trailing lines, per-particle color
     │   └── TunnelExplosionRenderer.js # Death tunnel explosion effect
     ├── hud/
-    │   └── HUD.js                   # Score text, health bar (10 segments), game over message
+    │   └── HUD.js                   # Score text, multiplier, health bar (10 segments), warnings, game over
     ├── audio/
-    │   └── SoundEngine.js           # Sound effects
+    │   └── SoundEngine.js           # Web Audio API: SFX + looping music, iOS AudioContext resume
     └── scenes/
-        └── GameScene.js             # Single scene: create() wires everything, update() renders per-frame
+        ├── TitleScene.js            # Title screen: animated hex grid, press space/fire to start
+        └── GameScene.js             # Main scene: create() wires everything, update() renders per-frame
+```
+
+### Other Key Files
+```
+src/game/shaderOverlay.js            # WebGL post-processing: CRT + Vector display shaders, phosphor persistence
+index.html                           # Desktop + mobile cabinet layout, touch zones
+public/backdropnew.png               # Mobile arcade cabinet backdrop image
 ```
 
 ---
@@ -94,10 +109,17 @@ src/
 - Bullets spawn at `depth = 0`, tick toward `MAX_DEPTH`
 - All movement is discrete: 1 segment per tick
 
+### Input Queue
+- FIFO queue (max 4 deep) — `left`, `right`, `fire` actions queued from keyboard/touch
+- Rotations block queue processing until animation completes (ensures left→space fires in the new lane)
+- Fire is instant and doesn't block — queue continues draining after fire
+- On mobile: synthetic keyboard events dispatched from touch zones via `window.dispatchEvent()`
+
 ### Two-Timer System
-- **Enemy timer** (`TICK_MS = 800ms`): moves enemies/walls/doublewalls, checks damage, spawns
+- **Enemy timer** (starts `TICK_MS = 800ms`, speeds up to `500ms` over ~2.5 min): moves enemies/walls/doublewalls, checks damage, spawns
 - **Bullet timer** (`BULLET_TICK_MS = 200ms`): moves bullets, resolves collisions, decrements fire cooldown
 - Both timers independently run collision checks (enemy may move into bullet, or vice versa)
+- Enemy tick speed: `TICK_MS - (TICK_MS - 500) * (secs/150)^2` (quadratic decay over 2.5 minutes)
 
 ### Smooth Visuals on Discrete Grid
 - Rotation: 150ms linear interpolation via `_rotAngle`, applied to all geometry lookups
@@ -112,11 +134,16 @@ src/
   - Tank (damaged): **-10 HP**
   - Bomb: **-20 HP**
   - Heart: **-10 HP**
-  - Wall on player lane: **-30 HP**
-  - DoubleWall on player lane: **-30 HP**
 - Game over when health reaches **0**
 - An explosion spawns at the player position on each hit
 - Walls/doublewalls on non-player lanes are dodged and removed (no damage)
+
+### Wall Escalation (3-tier)
+Walls on the player lane use a cumulative `wallHits` counter:
+- **Tier 1** (1st hit): **-30 HP**, HUD shows "WARNING", tunnel flash + wobble
+- **Tier 2** (2nd hit): **-60 HP**, HUD shows "STRUCTURE CRITICAL", bigger flash + wobble + health bar pulse
+- **Tier 3** (3rd hit): **instant death** regardless of remaining HP
+- Resets score multiplier to 1.0 on any wall hit
 
 ---
 
@@ -171,37 +198,63 @@ src/
 
 ## Collision System
 
-Grid-based only — if `bullet.depth === enemy.depth && bullet.lane === enemy.lane`:
-- **Regular enemy**: kill both, +100, orange explosion
-- **Tank (not dead)**: kill bullet only, call `tank.hit()`, +50, blue explosion, tank persists
-- **Tank (killed)**: kill both, +200, blue explosion
-- **Bomb**: kill bomb, +100, yellow explosion, then chain-kill ALL other alive enemies (+100 each, entity-colored explosions)
-- **Heart**: kill heart, restore health to 100%, pink explosion
+Collision checks happen in order: walls → doublewalls → enemies.
+
+### Bullet vs Wall/DoubleWall
+- Bullet is destroyed, wall/doublewall is unharmed
+- `hitFlash` set to 1.0 on the wall, decays at rate 4/s — wall renders at full brightness TUNNEL color briefly
+- `onWallDeflect` callback plays `hitwall.mp3`
+
+### Bullet vs Enemy
+Grid-based — if `bullet.depth === enemy.depth && bullet.lane === enemy.lane`:
+- **Regular enemy**: kill both, +100 × multiplier, orange explosion
+- **Tank (not dead)**: kill bullet only, call `tank.hit()`, +50 × multiplier, blue explosion, tank persists
+- **Tank (killed)**: kill both, +200 × multiplier, blue explosion
+- **Bomb**: kill bomb, +100 × multiplier, yellow explosion, then chain-kill ALL other alive enemies (+100 each). Multiplier bumps +0.5
+- **Heart**: kill heart, restore health to 100%, pink explosion, plays `heart.mp3`
+- **Distance bonus**: kills at depth ≥ 4 get **+50%** score
 - `onHit(lane, depth, prevDepth, color)` callback triggers `ExplosionRenderer.spawn()` with entity-specific color
 
-Walls and doublewalls are **not** in the collision check — they cannot be destroyed by bullets.
+### Score Multiplier
+- Starts at 1.0, max 4.0
+- +0.1 per regular enemy kill, +0.5 per bomb chain
+- **Resets to 1.0** on wall hit
+- Displayed in HUD when > 1.0
 
 ---
 
 ## Spawn System
 
-Weighted random roll each spawn interval:
-| Roll        | Entity     | Chance |
-|-------------|------------|--------|
-| 0.00–0.52   | Enemy      | 52%    |
-| 0.52–0.65   | Wall       | 13%    |
-| 0.65–0.74   | DoubleWall | 9%     |
-| 0.74–0.84   | Tank       | 10%    |
-| 0.84–0.95   | Bomb       | 11%    |
-| 0.95–1.00   | Heart      | 5%     |
+### Weighted Spawn Pool
+| Entity     | Weight | Notes                     |
+|------------|--------|---------------------------|
+| Enemy      | 55     | Available from start       |
+| Wall       | 14     | Unlocks at 20s             |
+| Tank       | 11     | Unlocks at 40s             |
+| DoubleWall | 9      | Unlocks at 70s             |
+| Bomb       | 9      | Unlocks at 100s            |
+| Heart      | 2      | Unlocks at 100s            |
 
-Spawn interval ramps with elapsed time (`SPAWN_RAMP`):
+Weights are normalized among unlocked types only.
+
+### Spawn Interval
+Formula: `clamp(round(3.8 - sqrt(secs / 18)), 1, 4)` ticks between spawns.
 | Elapsed    | Ticks Between Spawns |
 |------------|---------------------|
 | 0s         | 4                   |
-| 20s        | 3                   |
-| 45s        | 2                   |
-| 90s        | 1                   |
+| ~12s       | 3                   |
+| ~29s       | 2                   |
+| ~58s       | 1                   |
+
+### Wall Density Cap
+Max active walls (wall + doublewall): `min(1 + floor(secs / 35), 4)`. If capped, walls/doublewalls excluded from spawn pool.
+
+### Pattern Moments
+Every 30-45 seconds, a pattern activates for 6-10 seconds:
+- **Adjacent**: 60% chance to spawn walls on adjacent lanes
+- **Spiral**: lanes increment mod 6 each spawn
+- **Gap**: one guaranteed safe lane
+- **Enemy Rush**: enemies only (no walls/tanks/bombs)
 
 ---
 
@@ -257,11 +310,79 @@ Additive blend mode (`Phaser.BlendModes.ADD`) on the single Graphics object.
   - Turns red when health ≤ 30
 - **Game over**: centered "GAME OVER / Press R to Restart"
 
+### Tunnel Dimming (Vector mode)
+- Tunnel lines render at 50% brightness (`TUNNEL_DIM`, `ACTIVE_LANE_DIM` constants)
+- Walls also render dimmed (`WALL_COLOR` = 50% TUNNEL) unless hit-flashing
+- Ring flash alpha at 0.35 (reduced from full)
+
 ### Explosion Particles
 - 16 particles per explosion, radial burst with random spread
 - Each particle has its own color (matches entity type)
 - Trailing line rendering, 600ms lifetime, drag decay
 - Player-hit explosions spawn at player position (depth 0, bottom lane)
+
+### Wobble Effect
+- Triggered on wall hits — brief rotational shake (150ms)
+- `wobbleOffset` added to `effectiveRotAngle` for all rendering
+- Tier 2+ wall hits get double amplitude
+
+---
+
+## Display Shaders (`shaderOverlay.js`)
+
+WebGL post-processing overlay canvas, positioned over the Phaser game canvas via `getBoundingClientRect()`.
+
+### CRT Mode
+- Barrel distortion (curvature)
+- Scanlines aligned to 224 virtual pixel rows
+- 5-tap max-sample within virtual pixels (catches thin lines)
+- Bloom at virtual-pixel scale
+- RGB phosphor mask, vignette, noise, brightness flicker
+- Rounded corners
+
+### Vector Mode
+- P31 cyan-blue phosphor color mapping (`phosphor()` function)
+- White hot cores at peak brightness
+- Edge beam defocus (wider sampling near screen edges)
+- Phosphor grain texture
+- Faint blue background hue with subtle brightness variation (simulates phosphor glass tint)
+- Glass surface reflection highlight
+- **Phosphor persistence**: ping-pong FBO with configurable decay
+  - Normal: `u_phosphorDecay = 0.78` (visible ghosting trails)
+  - During rotation: `u_phosphorDecay = 0.1` (near-instant decay to prevent smearing)
+  - Controlled dynamically from `GameScene` via `game.registry.get('shaderOverlay').setPhosphorDecay()`
+
+---
+
+## Audio System (`SoundEngine.js`)
+
+Web Audio API with separate gain nodes:
+- **Master gain**: 0.5 → destination
+- **SFX gain**: 0.3 → master (for one-shot sounds)
+- **Music gain**: 1.0 → master (for looping soundtrack)
+
+### Sound Effects
+| Sound       | File                | Trigger                    |
+|-------------|---------------------|----------------------------|
+| getready    | `/sounds/getready.mp3`  | Game start (500ms delay)   |
+| twist       | `/sounds/twist.mp3`    | Rotation                   |
+| shoot       | `/sounds/shoot.mp3`    | Bullet fired               |
+| explosion   | `/sounds/explode.mp3`  | Enemy/entity killed        |
+| death       | `/sounds/death.mp3`    | Game over tunnel explosion |
+| hitwall     | `/sounds/hitwall.mp3`  | Bullet hits wall           |
+| heart       | `/sounds/heart.mp3`    | Heart collected (shot)     |
+| soundtrack  | `/sounds/soundtrack.mp3` | Looping background music |
+
+### Music
+- Starts 2 seconds into GameScene (after "get ready" sound)
+- Loops continuously during gameplay
+- Stops on game over
+- `stopMusic()` also called on scene restart to clean up
+
+### iOS Audio
+- `AudioContext` created on first user gesture (touchstart/touchend/click/keydown) via listener in `main.js`
+- SoundEngine stored in `game.registry` — shared across scene restarts
+- `ctx.resume()` called defensively before every `playSound()` and `startMusic()`
 
 ---
 
@@ -302,6 +423,29 @@ Additive blend mode (`Phaser.BlendModes.ADD`) on the single Graphics object.
 
 ---
 
+## Mobile Support
+
+### Detection
+`'ontouchstart' in window || navigator.maxTouchPoints > 0` in `main.js`.
+
+### Cabinet Layout
+- `backdropnew.png` (1536×2752) shown full-width as arcade cabinet backdrop
+- Desktop elements (`#game-container`, `#shader-toggle`) hidden
+- Phaser game parented into `#cabinet-screen` div positioned over the backdrop's screen area
+- Canvas scaled via `width: 100% !important; height: auto !important`
+- Body centered vertically (`justify-content: center`)
+
+### Touch Zones
+Invisible absolutely-positioned divs over the backdrop's button artwork:
+- `#touch-left` — dispatches ArrowLeft keydown
+- `#touch-fire` — dispatches Space keydown (starts game, fires, restarts)
+- `#touch-right` — dispatches ArrowRight keydown
+- `#touch-display` — toggles CRT ↔ Vector shader
+- All use `touchstart` with `preventDefault()` to avoid scrolling/zooming
+- Viewport locked: `maximum-scale=1.0, user-scalable=no`
+
+---
+
 ## Gotchas & Pitfalls
 
 - **Bullet initial depth = 0** (player position), not 1. The tick moves it to 1 before collision check.
@@ -314,28 +458,35 @@ Additive blend mode (`Phaser.BlendModes.ADD`) on the single Graphics object.
 - **Walls/doublewalls cannot be shot** — CollisionSystem only checks `enemies[]` vs `bullets[]`.
 - **`WALL` color constant exists but is unused** — wall rendering uses `TUNNEL` color for consistency with the tunnel wireframe.
 - **Rotation direction mapping**: `rotateRight()` uses `+5` (mod 6), `rotateLeft()` uses `+1`. This is because visual direction is inverted from world rotation.
-- **`InputSystem` uses `keydown` events** (not Phaser's `JustDown` polling), stored as pending flags consumed each frame.
+- **InputSystem uses a FIFO queue** (max 4), not boolean flags. Rotations block the queue until animation completes.
 - **Health bar uses stroked rectangles** (not filled) — consistent with vector screen aesthetic.
 - **`onPlayerHit` callback** fires when entities deal damage to the player, triggering explosions at the player position.
+- **Bullets are stopped by walls** — CollisionSystem checks walls/doublewalls before enemies. Wall gets hitFlash, bullet is killed.
+- **SoundEngine is shared** — created once in `main.js`, stored in `game.registry`, survives scene restarts. AudioContext must be created during a user gesture for iOS.
+- **Phosphor decay is dynamic** — set to 0.1 during rotation (prevents smearing), restored to 0.78 when done.
+- **Wall escalation is cumulative** — `wallHits` counter persists for the entire game, 3rd wall hit = instant death.
+- **`getMidpointLerp` can return null** for negative depth — always guard with `if (!pos) return;` in callbacks.
+- **Spawn happens before movement** in `_onEnemyTick` so entities move immediately on their spawn tick.
 
 ---
 
 ## Game Loop Order
 
-### Enemy Tick (every 800ms)
+### Enemy Tick (dynamic: 800ms → 500ms)
 1. Remove dead enemies, walls, doublewalls from previous tick
-2. Tick all alive enemies (depth -= 1)
-3. Tick all alive walls (depth -= 1)
-4. Tick all alive doublewalls (depth -= 1)
-5. Notify ring flash (onEnemyMove callback)
-6. Resolve collisions
-7. Remove dead enemies (shot ones)
-8. Damage checks: enemies at depth < 0 → apply type-specific damage, kill entity
-9. Damage checks: walls at depth < 0 on player lane → -30 HP (else dodge/remove)
-10. Damage checks: doublewalls at depth < 0 on player lane → -30 HP (else dodge/remove)
-11. If health ≤ 0 → game over (onGameOver callback)
-12. Maybe spawn new entity
+2. Maybe spawn new entity (spawn before movement so entities move immediately)
+3. Tick all alive enemies (depth -= 1)
+4. Tick all alive walls (depth -= 1)
+5. Tick all alive doublewalls (depth -= 1)
+6. Notify ring flash (onEnemyMove callback)
+7. Resolve collisions (bullet vs wall deflect, bullet vs enemy)
+8. Remove dead enemies (shot ones)
+9. Damage checks: enemies at depth < 0 → apply type-specific damage, kill entity
+10. Damage checks: walls at depth < 0 on player lane → wall escalation (else dodge/remove)
+11. Damage checks: doublewalls at depth < 0 on player lane → wall escalation (else dodge/remove)
+12. If health ≤ 0 → game over (onGameOver callback, stop music)
 13. Increment tickCount and elapsedMs
+14. Update enemy tick speed (gradually faster)
 
 ### Bullet Tick (every 200ms)
 1. Remove dead bullets
@@ -347,14 +498,15 @@ Additive blend mode (`Phaser.BlendModes.ADD`) on the single Graphics object.
 7. Decrement fire cooldown
 
 ### Per-Frame Update
-1. Process input (pending flags → rotation animation / fire)
-2. Advance smooth rotation animation (150ms lerp)
-3. Decay ring flash
-4. Clear graphics
-5. Update explosion particles
-6. Draw tunnel → entities → explosions (skip if game over)
-7. Draw explosion particles + tunnel explosion
-8. Update HUD (score, health bar, game over text)
+1. Process input queue (rotations block queue, fire is instant)
+2. Advance smooth rotation animation (150ms lerp) + set phosphor decay
+3. Update wobble overlay
+4. Decay ring flash + wall hitFlash
+5. Clear graphics
+6. Update explosion particles
+7. Draw tunnel → entities → explosions (skip if game over)
+8. Draw explosion particles + tunnel explosion
+9. Update HUD (score, multiplier, health bar, warnings, game over text)
 
 ---
 
@@ -374,6 +526,13 @@ Additive blend mode (`Phaser.BlendModes.ADD`) on the single Graphics object.
 12. **Heart shot**: health restores to 100%, pink explosion
 13. **Heart hit player**: -10 HP damage (must shoot to heal)
 14. **Health bar**: 10 segments, segments disappear on damage, turns red at ≤ 30 HP
-15. **Game over**: health reaches 0, "GAME OVER" + R to restart, tunnel explosion
-16. **Ramp**: spawn cadence increases over time (4→3→2→1 ticks)
-17. **Explosion colors**: orange (enemy), blue (tank), yellow (bomb), pink (heart), green (wall)
+15. **Wall escalation**: 1st wall = -30, 2nd = -60, 3rd = instant death, with warnings
+16. **Bullet vs wall**: bullet destroyed, wall flashes bright, hitwall sound plays
+17. **Game over**: health reaches 0, "GAME OVER" + R/Space to restart, tunnel explosion, music stops
+18. **Ramp**: spawn cadence increases over time (4→3→2→1 ticks), tick speed increases
+19. **Entity gating**: walls at 20s, tanks at 40s, doublewalls at 70s, bombs/hearts at 100s
+20. **Score multiplier**: increments on kills, displayed in HUD, resets on wall hit
+21. **Explosion colors**: orange (enemy), blue (tank), yellow (bomb), pink (heart), white (wall)
+22. **Input queuing**: left→space fires in the turned lane, not the departing lane
+23. **Mobile**: backdrop cabinet, touch zones, display mode toggle, audio works on iOS
+24. **Display shaders**: CRT mode (scanlines, bloom), Vector mode (phosphor, persistence, blue hue)

@@ -32,8 +32,11 @@ export const CONFIG = Object.freeze({
     ACTIVE_LANE: 0xbbffdd,
     BOMB: 0xffdd44,
     HEART: 0xff4488,
+    PHASE: 0xcc66ff,
+    SPIRAL: 0x44ffdd,
   },
 
   WALL_Z_THICKNESS: 0.15,
   WALL_HEIGHT: 40,
+  PHASE_DEPTH: 2,
 });

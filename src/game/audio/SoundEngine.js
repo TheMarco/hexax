@@ -44,6 +44,7 @@ export class SoundEngine {
     this.loadSound('death', '/sounds/death.mp3');
     this.loadSound('hitwall', '/sounds/hitwall.mp3');
     this.loadSound('heart', '/sounds/heart.mp3');
+    this.loadSound('breach', '/sounds/breach.mp3');
     this.loadSound('soundtrack', '/sounds/soundtrack.mp3');
   }
 
@@ -94,6 +95,10 @@ export class SoundEngine {
 
   playHeart() {
     this.playSound('heart');
+  }
+
+  playBreach() {
+    this.playSound('breach');
   }
 
   startMusic() {

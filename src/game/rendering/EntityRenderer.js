@@ -1,5 +1,5 @@
 import { CONFIG } from '../config.js';
-import { drawGlowDiamond, drawGlowPolygon, drawGlowLine, drawGlowClaw, drawGlowCircle, drawGlowEllipse, drawGlowArc } from './GlowRenderer.js';
+import { drawGlowDiamond, drawGlowPolygon, drawGlowLine, drawGlowClaw, drawGlowCircle, drawGlowEllipse, drawGlowArc, drawGlowDashedEllipse, drawGlowDashedLine } from './GlowRenderer.js';
 
 // Dimmed tunnel color for walls (matches tunnel renderer)
 const WALL_COLOR = (() => {
@@ -20,18 +20,29 @@ export class EntityRenderer {
 
     // Enemies (including tanks): smooth interpolated positions
     for (const enemy of entityManager.enemies) {
+      if (!enemy.alive) continue;
+
       const renderLane = state.getRenderLane(enemy.lane);
       const visualLane = (renderLane + visualOffset) % CONFIG.NUM_LANES;
 
-      let visualDepth;
-      if (!enemy.alive) {
-        visualDepth = enemy.depth;
-      } else {
-        visualDepth = enemy.prevDepth + (enemy.depth - enemy.prevDepth) * enemyLerp;
-      }
+      const visualDepth = enemy.prevDepth + (enemy.depth - enemy.prevDepth) * enemyLerp;
 
       if (visualDepth >= 0 && visualDepth <= CONFIG.MAX_DEPTH) {
-        const pos = this.geometry.getMidpointLerp(visualDepth, visualLane, rotAngle);
+        let pos = this.geometry.getMidpointLerp(visualDepth, visualLane, rotAngle);
+
+        // Spiral enemies: interpolate lane position for smooth lateral movement
+        if (enemy.type === 'spiral' && enemy.alive && enemy.prevLane !== enemy.lane) {
+          const prevRenderLane = state.getRenderLane(enemy.prevLane);
+          const prevVisualLane = (prevRenderLane + visualOffset) % CONFIG.NUM_LANES;
+          const prevPos = this.geometry.getMidpointLerp(visualDepth, prevVisualLane, rotAngle);
+          if (pos && prevPos) {
+            pos = {
+              x: prevPos.x + (pos.x - prevPos.x) * enemyLerp,
+              y: prevPos.y + (pos.y - prevPos.y) * enemyLerp,
+            };
+          }
+        }
+
         if (pos) {
           const scale = this.geometry.getScaleLerp(visualDepth);
           const size = 114 * scale;
@@ -43,6 +54,10 @@ export class EntityRenderer {
             this._drawBomb(gfx, pos.x, pos.y, Math.max(size, 5), CONFIG.COLORS.BOMB);
           } else if (enemy.type === 'heart') {
             this._drawHeart(gfx, pos.x, pos.y, Math.max(size, 5), CONFIG.COLORS.HEART);
+          } else if (enemy.type === 'phase') {
+            this._drawPhaseEnemy(gfx, pos.x, pos.y, Math.max(size, 4), enemy, dt);
+          } else if (enemy.type === 'spiral') {
+            this._drawSpiralEnemy(gfx, pos.x, pos.y, Math.max(size, 4), CONFIG.COLORS.SPIRAL, enemy.spinDir);
           } else {
             this._drawPuck(gfx, pos.x, pos.y, Math.max(size, 4), CONFIG.COLORS.ENEMY);
           }
@@ -390,6 +405,90 @@ export class EntityRenderer {
         ox + px * p.u + nx * p.v, oy + py * p.u + ny * p.v,
         ix + px * p.u + nx * p.v, iy + py * p.u + ny * p.v, color);
     }
+  }
+
+  _drawSpiralEnemy(gfx, cx, cy, size, color, spinDir) {
+    const r = size * 0.3;
+
+    // Orb (small circle)
+    drawGlowCircle(gfx, cx, cy, r, color);
+
+    // Tangent direction for the arrow (perpendicular to radial)
+    const rx = cx - CONFIG.CENTER_X;
+    const ry = cy - CONFIG.CENTER_Y;
+    const dist = Math.sqrt(rx * rx + ry * ry) || 1;
+    const tx = (-ry / dist) * spinDir;
+    const ty = (rx / dist) * spinDir;
+    const arrowAngle = Math.atan2(ty, tx);
+
+    // Arrow stem from orb edge outward
+    const stemX = cx + tx * r;
+    const stemY = cy + ty * r;
+    const tipX = cx + tx * (r + size * 0.28);
+    const tipY = cy + ty * (r + size * 0.28);
+    drawGlowLine(gfx, stemX, stemY, tipX, tipY, color);
+
+    // Arrowhead barbs
+    const barbLen = size * 0.16;
+    const barbAngle = Math.PI * 0.75;
+    drawGlowLine(gfx, tipX, tipY,
+      tipX + Math.cos(arrowAngle + barbAngle) * barbLen,
+      tipY + Math.sin(arrowAngle + barbAngle) * barbLen, color);
+    drawGlowLine(gfx, tipX, tipY,
+      tipX + Math.cos(arrowAngle - barbAngle) * barbLen,
+      tipY + Math.sin(arrowAngle - barbAngle) * barbLen, color);
+  }
+
+  _drawPhaseEnemy(gfx, cx, cy, size, enemy, dt) {
+    const color = enemy.hitFlash > 0 ? 0xffffff :
+                  enemy.transitionFlash > 0 ? 0xffffff : CONFIG.COLORS.PHASE;
+
+    // Decay flashes
+    if (enemy.hitFlash > 0) {
+      enemy.hitFlash = Math.max(0, enemy.hitFlash - dt * 4);
+    }
+    if (enemy.transitionFlash > 0) {
+      enemy.transitionFlash = Math.max(0, enemy.transitionFlash - dt * 3);
+    }
+
+    if (enemy.phase === 'vulnerable') {
+      // Solid puck — same as regular enemy puck but purple
+      this._drawPuck(gfx, cx, cy, size, color);
+      return;
+    }
+
+    // Shielded: dashed puck (dashed ellipses + dashed connecting lines)
+    const dx = CONFIG.CENTER_X - cx;
+    const dy = CONFIG.CENTER_Y - cy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const nx = dx / dist;
+    const ny = dy / dist;
+    const px = -ny;
+    const py = nx;
+
+    const r = size * 0.5;
+    const tilt = 0.35;
+    const thickness = size * 0.2;
+    const rotation = Math.atan2(py, px);
+
+    const ix = cx + nx * thickness * 0.5;
+    const iy = cy + ny * thickness * 0.5;
+    const ox = cx - nx * thickness * 0.5;
+    const oy = cy - ny * thickness * 0.5;
+
+    // Back disc face (dashed ellipse)
+    drawGlowDashedEllipse(gfx, ix, iy, r, r * tilt, color, rotation);
+
+    // Dashed side connecting lines
+    drawGlowDashedLine(gfx,
+      ix + px * r, iy + py * r,
+      ox + px * r, oy + py * r, color, 3);
+    drawGlowDashedLine(gfx,
+      ix - px * r, iy - py * r,
+      ox - px * r, oy - py * r, color, 3);
+
+    // Front disc face (dashed ellipse)
+    drawGlowDashedEllipse(gfx, ox, oy, r, r * tilt, color, rotation);
   }
 
   _drawShip(gfx, visualOffset, rotAngle) {

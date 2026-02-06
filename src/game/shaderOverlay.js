@@ -478,9 +478,13 @@ export function createShaderOverlay(gameCanvas) {
   gl.clearColor(0, 0, 0, 0);
 
   let active = programs.crt;
+  let activeShaderName = 'crt';
 
   function activateProgram(prog) {
     active = prog;
+    for (const [name, p] of Object.entries(programs)) {
+      if (p === prog) { activeShaderName = name; break; }
+    }
     gl.useProgram(prog.program);
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
     gl.enableVertexAttribArray(prog.aPosition);
@@ -569,6 +573,9 @@ export function createShaderOverlay(gameCanvas) {
     },
     setPhosphorDecay(value) {
       currentPhosphorDecay = value;
+    },
+    getShaderName() {
+      return activeShaderName;
     },
   };
 }

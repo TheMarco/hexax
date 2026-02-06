@@ -11,6 +11,7 @@ export class TickSystem {
     this.onGameOver = null;     // callback() when player dies
     this.onPlayerHit = null;    // callback(lane, color) when player takes damage
     this.onWallHit = null;      // callback(tier) when wall hits player (1, 2, or 3)
+    this.onSegmentDamage = null; // callback(result) when segment integrity changes
 
     // Slow timer: enemies move, spawn, game-over check
     // Delay adjusts dynamically each tick via getTickMs()
@@ -81,8 +82,21 @@ export class TickSystem {
         if (enemy.type === 'tank') { dmg = enemy.hp >= 2 ? 20 : 10; color = CONFIG.COLORS.TANK; }
         else if (enemy.type === 'bomb') { dmg = 20; color = CONFIG.COLORS.BOMB; }
         else if (enemy.type === 'heart') { color = CONFIG.COLORS.HEART; }
+        else if (enemy.type === 'phase') { color = CONFIG.COLORS.PHASE; }
+        else if (enemy.type === 'spiral') { color = CONFIG.COLORS.SPIRAL; }
         enemy.kill();
         if (this.onPlayerHit) this.onPlayerHit(enemy.lane, color);
+
+        // Segment integrity damage (not for hearts — they just pass through)
+        if (enemy.type !== 'heart') {
+          const segResult = this.state.damageSegment(enemy.lane);
+          if (this.onSegmentDamage) this.onSegmentDamage(segResult);
+          if (segResult.fatal) {
+            if (this.onGameOver) this.onGameOver();
+            return;
+          }
+        }
+
         if (this.state.takeDamage(dmg)) {
           if (this.onGameOver) this.onGameOver();
           return;

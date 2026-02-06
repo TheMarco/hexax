@@ -5,6 +5,8 @@ import { Tank } from '../entities/Tank.js';
 import { DoubleWall } from '../entities/DoubleWall.js';
 import { Bomb } from '../entities/Bomb.js';
 import { Heart } from '../entities/Heart.js';
+import { PhaseEnemy } from '../entities/PhaseEnemy.js';
+import { SpiralEnemy } from '../entities/SpiralEnemy.js';
 
 // Base spawn weights (relative, will be normalized after gating)
 const WEIGHTS = {
@@ -14,16 +16,20 @@ const WEIGHTS = {
   tank:       11,
   bomb:       9,
   heart:      2,
+  phase:      10,
+  spiral:     16,
 };
 
 // Entity unlock times (seconds)
 const UNLOCK_TIMES = {
   enemy:      0,
   wall:       20,
-  tank:       40,
+  tank:       15,
   doublewall: 70,
   bomb:       100,
   heart:      100,
+  phase:      15,
+  spiral:     70,
 };
 
 // Pattern definitions
@@ -38,7 +44,7 @@ export class SpawnSystem {
   constructor(entityManager, state) {
     this.entityManager = entityManager;
     this.state = state;
-    this.ticksSinceSpawn = 0;
+    this.spawnBudget = 0;
 
     // Pattern moment state
     this._patternTimer = 0;       // ticks until next pattern
@@ -50,7 +56,7 @@ export class SpawnSystem {
   }
 
   reset() {
-    this.ticksSinceSpawn = 0;
+    this.spawnBudget = 0;
     this._patternTimer = 0;
     this._patternDuration = 0;
     this._activePattern = null;
@@ -101,13 +107,29 @@ export class SpawnSystem {
     return Math.min(1 + Math.floor(secs / 35), 4);
   }
 
+  _getDynamicWeight(type) {
+    const secs = this.state.getElapsedSeconds();
+    if (type === 'heart') {
+      // 2 at unlock (100s) → 12 at 300s (~10% of full pool)
+      const t = Math.min(Math.max((secs - 100) / 200, 0), 1);
+      return 2 + t * 10;
+    }
+    if (type === 'spiral') {
+      // 16 at unlock (70s) → 55 at 250s (~1 in 3 spawns)
+      const t = Math.min(Math.max((secs - 70) / 180, 0), 1);
+      return 16 + t * 39;
+    }
+    return WEIGHTS[type];
+  }
+
   _pickType(unlocked, wallCapped) {
     // Build weighted pool from unlocked types, excluding walls if capped
     let total = 0;
     const pool = [];
     for (const type of unlocked) {
       if (wallCapped && (type === 'wall' || type === 'doublewall')) continue;
-      const w = WEIGHTS[type];
+      if (type === 'heart' && this.state.health >= 80) continue;
+      const w = this._getDynamicWeight(type);
       pool.push({ type, weight: w });
       total += w;
     }
@@ -136,11 +158,11 @@ export class SpawnSystem {
       }
     }
 
-    this.ticksSinceSpawn++;
     const interval = this.state.getSpawnInterval();
+    this.spawnBudget = (this.spawnBudget || 0) + (1 / interval);
 
-    if (this.ticksSinceSpawn >= interval) {
-      this.ticksSinceSpawn = 0;
+    if (this.spawnBudget >= 1) {
+      this.spawnBudget -= 1;
 
       // Apply active pattern if any
       if (this._activePattern) {
@@ -181,6 +203,12 @@ export class SpawnSystem {
         break;
       case 'heart':
         this.entityManager.addEnemy(new Heart(lane, CONFIG.MAX_DEPTH));
+        break;
+      case 'phase':
+        this.entityManager.addEnemy(new PhaseEnemy(lane, CONFIG.MAX_DEPTH));
+        break;
+      case 'spiral':
+        this.entityManager.addEnemy(new SpiralEnemy(lane, CONFIG.MAX_DEPTH));
         break;
     }
   }

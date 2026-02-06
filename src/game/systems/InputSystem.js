@@ -13,6 +13,7 @@ export class InputSystem {
 
     this._queue = []; // FIFO: 'left', 'right', 'fire'
     this._pendingRestart = false;
+    this._gameOverElapsed = 0;
 
     scene.input.keyboard.on('keydown-LEFT', () => {
       if (this._queue.length < MAX_QUEUE) this._queue.push('left');
@@ -23,17 +24,22 @@ export class InputSystem {
     scene.input.keyboard.on('keydown-SPACE', () => {
       if (this._queue.length < MAX_QUEUE) this._queue.push('fire');
     });
-    scene.input.keyboard.on('keydown-R', () => { this._pendingRestart = true; });
     scene.input.keyboard.on('keydown-SPACE', () => {
-      if (this.state.gameOver) this._pendingRestart = true;
+      if (this.state.gameOver && this._gameOverElapsed >= 3000) {
+        this._pendingRestart = true;
+      }
     });
   }
 
-  update() {
+  update(delta) {
     if (this.state.gameOver) {
+      this._gameOverElapsed += delta || 0;
       if (this._pendingRestart) {
         this._pendingRestart = false;
         this.scene.scene.restart();
+      }
+      if (this._gameOverElapsed >= 8000) {
+        this.scene.scene.start('TitleScene');
       }
       this._queue.length = 0;
       return;

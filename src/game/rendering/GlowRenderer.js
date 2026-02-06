@@ -98,6 +98,24 @@ export function drawGlowArc(gfx, cx, cy, rx, ry, color, rotation = 0, startAngle
   }
 }
 
+export function drawGlowDashedEllipse(gfx, cx, cy, rx, ry, color, rotation = 0, numDashes = 6, segments = 16) {
+  const dashArc = Math.PI * 2 / numDashes * 0.5; // half dash, half gap
+  for (let i = 0; i < numDashes; i++) {
+    const startAngle = (i / numDashes) * Math.PI * 2;
+    drawGlowArc(gfx, cx, cy, rx, ry, color, rotation, startAngle, startAngle + dashArc, segments);
+  }
+}
+
+export function drawGlowDashedLine(gfx, x1, y1, x2, y2, color, numDashes = 4) {
+  for (let i = 0; i < numDashes; i++) {
+    const t0 = i / numDashes;
+    const t1 = (i + 0.5) / numDashes;
+    drawGlowLine(gfx,
+      x1 + (x2 - x1) * t0, y1 + (y2 - y1) * t0,
+      x1 + (x2 - x1) * t1, y1 + (y2 - y1) * t1, color);
+  }
+}
+
 export function drawGlowClaw(gfx, cx, cy, size, color) {
   const ARMS = 3;
   const armLen = size * 1.1;

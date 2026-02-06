@@ -41,14 +41,28 @@ export class GameScene extends Phaser.Scene {
     this.collisionSystem.onHeartCollect = () => {
       this.sound.playHeart();
     };
-    this.collisionSystem.onHit = (lane, depth, prevDepth, color) => {
+    this.collisionSystem.onHit = (lane, depth, prevDepth, color, prevLane) => {
       const VISUAL_OFFSET = 2;
       const renderLane = this.state.getRenderLane(lane);
       const visualLane = (renderLane + VISUAL_OFFSET) % CONFIG.NUM_LANES;
       const enemyLerp = this.tickSystem.enemyTimer.getProgress();
       const visualDepth = prevDepth + (depth - prevDepth) * enemyLerp;
-      const pos = this.geometry.getMidpointLerp(visualDepth, visualLane, this._rotAngle);
+      let pos = this.geometry.getMidpointLerp(visualDepth, visualLane, this._rotAngle);
       if (!pos) return;
+
+      // Interpolate explosion position for lane-changing enemies (spiral)
+      if (prevLane !== undefined && prevLane !== lane) {
+        const prevRenderLane = this.state.getRenderLane(prevLane);
+        const prevVisualLane = (prevRenderLane + VISUAL_OFFSET) % CONFIG.NUM_LANES;
+        const prevPos = this.geometry.getMidpointLerp(visualDepth, prevVisualLane, this._rotAngle);
+        if (prevPos) {
+          pos = {
+            x: prevPos.x + (pos.x - prevPos.x) * enemyLerp,
+            y: prevPos.y + (pos.y - prevPos.y) * enemyLerp,
+          };
+        }
+      }
+
       this.explosionRenderer.spawn(pos.x, pos.y, color);
       this.sound.playExplosion();
     };
@@ -62,7 +76,7 @@ export class GameScene extends Phaser.Scene {
       const VISUAL_OFFSET = 2;
       const pos = this.geometry.getMidpointLerp(0, (0 + VISUAL_OFFSET) % CONFIG.NUM_LANES, this._rotAngle);
       this.explosionRenderer.spawn(pos.x, pos.y, color);
-      this.sound.playExplosion();
+      this.sound.playBreach();
     };
     this.tickSystem.onWallHit = (tier) => {
       // Visual feedback per tier
@@ -84,6 +98,14 @@ export class GameScene extends Phaser.Scene {
       const count = tier >= 2 ? 3 : 1;
       for (let i = 0; i < count; i++) {
         this.explosionRenderer.spawn(pos.x, pos.y, 0xffffff);
+      }
+    };
+    this.tickSystem.onSegmentDamage = (result) => {
+      if (result.fatal) return; // game over handles itself
+      if (result.critical) {
+        this.hud.showIntegrityWarning('HEXAX INTEGRITY CRITICAL!');
+      } else {
+        this.hud.showIntegrityWarning('HEXAX INTEGRITY COMPROMISED!');
       }
     };
     this.tickSystem.onGameOver = () => {
@@ -144,7 +166,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(time, delta) {
-    this.inputSystem.update();
+    this.inputSystem.update(delta);
 
     // Smooth rotation animation
     if (this._rotActive) {
@@ -202,7 +224,15 @@ export class GameScene extends Phaser.Scene {
 
     // Only draw tunnel/entities if not game over
     if (!this.state.gameOver) {
-      this.tunnelRenderer.draw(this.gfx, activeFaceVertex, effectiveRotAngle, this._ringFlash);
+      // Map logical segment damage to visual lanes for the renderer
+      const visualDamage = new Array(CONFIG.NUM_LANES).fill(false);
+      for (let l = 0; l < CONFIG.NUM_LANES; l++) {
+        if (this.state.segmentDamage[l]) {
+          const vl = (this.state.getRenderLane(l) + VISUAL_OFFSET) % CONFIG.NUM_LANES;
+          visualDamage[vl] = true;
+        }
+      }
+      this.tunnelRenderer.draw(this.gfx, activeFaceVertex, effectiveRotAngle, this._ringFlash, visualDamage);
       this.entityRenderer.draw(this.gfx, this.state, this.entityManager, VISUAL_OFFSET, effectiveRotAngle, bulletLerp, enemyLerp, dt);
     }
 

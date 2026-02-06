@@ -77,6 +77,11 @@ export class HUD {
     // Tier 3 = game over, no warning needed
   }
 
+  showIntegrityWarning(message) {
+    this.warningText.setText(message);
+    this._warningTimer = 3000;
+  }
+
   update(delta) {
     this.scoreText.setText(`SCORE: ${this.state.score}`);
 
@@ -140,7 +145,7 @@ export class HUD {
     }
 
     if (this.state.gameOver) {
-      this.gameOverText.setText('GAME OVER\nPress R to Restart');
+      this.gameOverText.setText('GAME OVER\nPress Fire to Restart');
     } else {
       this.gameOverText.setText('');
     }
