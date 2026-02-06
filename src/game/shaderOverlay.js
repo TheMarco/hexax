@@ -314,6 +314,14 @@ void main() {
   glassHighlight = max(glassHighlight, 0.0);
   color += vec3(0.002, 0.003, 0.006) * glassHighlight;
 
+  // ── Faint blue hue — vector CRT phosphor glass tint ──
+  // Real vector displays have a subtle blue cast from the P31 phosphor
+  // glass, visible even in dark areas. Vary brightness for realism.
+  float blueVar = 0.7 + 0.3 * sin(u_time * 0.4 + curved.y * 4.0 + curved.x * 2.5);
+  float blueNoise = hash2(floor(gl_FragCoord.xy * 0.5)) * 0.15;
+  vec3 blueTint = vec3(0.02, 0.03, 0.08) * (blueVar + blueNoise);
+  color += blueTint;
+
   // ── Subtle analog noise ──
   float n = (hash(gl_FragCoord.xy, u_time) - 0.5) * 0.01;
   color += n;
