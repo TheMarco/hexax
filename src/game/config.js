@@ -9,7 +9,7 @@ export const CONFIG = Object.freeze({
   BULLET_TICK_MS: 200,
   FIRE_COOLDOWN_BULLET_TICKS: 1.5,
 
-  R0: 249,
+  R0: 300,
   SCALE_MIN: 0.05,
   SCALE_POWER: 0.5,
   ANGLE_OFFSET: -Math.PI / 3,
@@ -17,7 +17,7 @@ export const CONFIG = Object.freeze({
   WIDTH: 768,
   HEIGHT: 672,
   CENTER_X: 384,
-  CENTER_Y: 381,
+  CENTER_Y: 355,
 
   COLORS: {
     BG: 0x000000,
@@ -37,6 +37,6 @@ export const CONFIG = Object.freeze({
   },
 
   WALL_Z_THICKNESS: 0.15,
-  WALL_HEIGHT: 40,
+  WALL_HEIGHT: 48,
   PHASE_DEPTH: 2,
 });

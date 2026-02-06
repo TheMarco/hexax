@@ -45,7 +45,7 @@ export class EntityRenderer {
 
         if (pos) {
           const scale = this.geometry.getScaleLerp(visualDepth);
-          const size = 114 * scale;
+          const size = 137 * scale;
 
           if (enemy.type === 'tank') {
             const tankColor = enemy.hp >= 2 ? CONFIG.COLORS.TANK : CONFIG.COLORS.TANK_DAMAGED;
@@ -81,7 +81,7 @@ export class EntityRenderer {
         const pos = this.geometry.getMidpointLerp(visualDepth, visualLane, rotAngle);
         if (pos) {
           const scale = this.geometry.getScaleLerp(visualDepth);
-          const size = 5 * scale;
+          const size = 6 * scale;
           drawGlowDiamond(gfx, pos.x, pos.y, Math.max(size, 2), CONFIG.COLORS.BULLET);
         }
       }
@@ -507,11 +507,11 @@ export class EntityRenderer {
     const py = nx;
 
     // Gun turret design (Vectrex style)
-    const baseWidth = 14;
-    const baseDepth = 8;
-    const barrelLength = 20;
-    const barrelBaseWidth = 6;
-    const barrelTipWidth = 2;
+    const baseWidth = 17;
+    const baseDepth = 10;
+    const barrelLength = 24;
+    const barrelBaseWidth = 7;
+    const barrelTipWidth = 2.5;
 
     // Base platform (rectangle sitting ON the rim line, extending inward)
     const baseLeft = { x: pos.x - px * baseWidth, y: pos.y - py * baseWidth };
