@@ -12,7 +12,6 @@ import { SpawnSystem } from '../systems/SpawnSystem.js';
 import { HUD } from '../hud/HUD.js';
 import { ExplosionRenderer } from '../rendering/ExplosionRenderer.js';
 import { TunnelExplosionRenderer } from '../rendering/TunnelExplosionRenderer.js';
-import { SoundEngine } from '../audio/SoundEngine.js';
 
 const STEP_ANGLE = Math.PI / 3; // 60° per lane
 const ROT_DURATION_MS = 150;    // total time for smooth 60° rotation
@@ -26,9 +25,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
-    this.sound = new SoundEngine();
-    // Initialize audio immediately (will resume on first user interaction if needed)
-    this.sound.init();
+    this.sound = this.game.registry.get('soundEngine');
+    this.sound.stopMusic(); // clean up from previous game if restarting
     this.geometry = new TunnelGeometry();
     this.tunnelRenderer = new TunnelRenderer(this.geometry);
     this.entityRenderer = new EntityRenderer(this.geometry);

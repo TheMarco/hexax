@@ -1,9 +1,25 @@
 import { StartGame } from './game/main.js';
 import { createShaderOverlay } from './game/shaderOverlay.js';
+import { SoundEngine } from './game/audio/SoundEngine.js';
 
 // Wait for fonts (Hyperspace) to load before starting the game
 document.fonts.ready.then(() => {
   const game = StartGame('game-container');
+
+  // Initialize audio on first user gesture (required by iOS)
+  const soundEngine = new SoundEngine();
+  game.registry.set('soundEngine', soundEngine);
+  const initAudio = () => {
+    soundEngine.init();
+    document.removeEventListener('touchstart', initAudio);
+    document.removeEventListener('touchend', initAudio);
+    document.removeEventListener('click', initAudio);
+    document.removeEventListener('keydown', initAudio);
+  };
+  document.addEventListener('touchstart', initAudio);
+  document.addEventListener('touchend', initAudio);
+  document.addEventListener('click', initAudio);
+  document.addEventListener('keydown', initAudio);
 
   // Apply shader overlay after canvas is ready
   setTimeout(() => {
