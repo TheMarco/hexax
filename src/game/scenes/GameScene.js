@@ -37,6 +37,9 @@ export class GameScene extends Phaser.Scene {
     this.explosionRenderer = new ExplosionRenderer();
     this.tunnelExplosion = new TunnelExplosionRenderer(this.geometry);
     this.collisionSystem = new CollisionSystem(this.entityManager, this.state);
+    this.collisionSystem.onWallDeflect = () => {
+      this.sound.playHitWall();
+    };
     this.collisionSystem.onHit = (lane, depth, prevDepth, color) => {
       const VISUAL_OFFSET = 2;
       const renderLane = this.state.getRenderLane(lane);
@@ -44,6 +47,7 @@ export class GameScene extends Phaser.Scene {
       const enemyLerp = this.tickSystem.enemyTimer.getProgress();
       const visualDepth = prevDepth + (depth - prevDepth) * enemyLerp;
       const pos = this.geometry.getMidpointLerp(visualDepth, visualLane, this._rotAngle);
+      if (!pos) return;
       this.explosionRenderer.spawn(pos.x, pos.y, color);
       this.sound.playExplosion();
     };
@@ -84,6 +88,7 @@ export class GameScene extends Phaser.Scene {
     this.tickSystem.onGameOver = () => {
       this.tunnelExplosion.trigger();
       this.sound.playTunnelExplosion();
+      this.sound.stopMusic();
     };
     this.hud = new HUD(this);
 
@@ -112,9 +117,12 @@ export class GameScene extends Phaser.Scene {
     this._wobbleElapsed = 0;
     this._wobbleAmplitude = WOBBLE_AMPLITUDE;
 
-    // Play get ready sound on game start (delay to ensure audio context initialized)
+    // Play get ready sound on game start, then start music
     this.time.delayedCall(500, () => {
       this.sound.playGetReady();
+    });
+    this.time.delayedCall(2000, () => {
+      this.sound.startMusic();
     });
   }
 
@@ -194,7 +202,7 @@ export class GameScene extends Phaser.Scene {
     // Only draw tunnel/entities if not game over
     if (!this.state.gameOver) {
       this.tunnelRenderer.draw(this.gfx, activeFaceVertex, effectiveRotAngle, this._ringFlash);
-      this.entityRenderer.draw(this.gfx, this.state, this.entityManager, VISUAL_OFFSET, effectiveRotAngle, bulletLerp, enemyLerp);
+      this.entityRenderer.draw(this.gfx, this.state, this.entityManager, VISUAL_OFFSET, effectiveRotAngle, bulletLerp, enemyLerp, dt);
     }
 
     this.explosionRenderer.draw(this.gfx);

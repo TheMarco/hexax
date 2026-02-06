@@ -15,7 +15,7 @@ export class EntityRenderer {
     this.geometry = geometry;
   }
 
-  draw(gfx, state, entityManager, visualOffset, rotAngle = 0, bulletLerp = 0, enemyLerp = 0) {
+  draw(gfx, state, entityManager, visualOffset, rotAngle = 0, bulletLerp = 0, enemyLerp = 0, dt = 0) {
     this._drawShip(gfx, visualOffset, rotAngle);
 
     // Enemies (including tanks): smooth interpolated positions
@@ -81,7 +81,12 @@ export class EntityRenderer {
       const visualDepth = wall.prevDepth + (wall.depth - wall.prevDepth) * enemyLerp;
 
       if (visualDepth >= 0 && visualDepth <= CONFIG.MAX_DEPTH) {
-        this._drawWallSlab(gfx, visualDepth, visualLane, rotAngle);
+        const color = wall.hitFlash > 0 ? CONFIG.COLORS.TUNNEL : WALL_COLOR;
+        this._drawWallSlab(gfx, visualDepth, visualLane, rotAngle, color);
+      }
+      // Decay hit flash
+      if (wall.hitFlash > 0) {
+        wall.hitFlash = Math.max(0, wall.hitFlash - dt * 4);
       }
     }
 
@@ -95,7 +100,12 @@ export class EntityRenderer {
       const visualDepth = dw.prevDepth + (dw.depth - dw.prevDepth) * enemyLerp;
 
       if (visualDepth >= 0 && visualDepth <= CONFIG.MAX_DEPTH) {
-        this._drawDoubleWallSlab(gfx, visualDepth, visualLane1, visualLane2, rotAngle);
+        const color = dw.hitFlash > 0 ? CONFIG.COLORS.TUNNEL : WALL_COLOR;
+        this._drawDoubleWallSlab(gfx, visualDepth, visualLane1, visualLane2, rotAngle, color);
+      }
+      // Decay hit flash
+      if (dw.hitFlash > 0) {
+        dw.hitFlash = Math.max(0, dw.hitFlash - dt * 4);
       }
     }
   }
@@ -116,7 +126,7 @@ export class EntityRenderer {
     return { x: (px / len) * height, y: (py / len) * height };
   }
 
-  _drawWallSlab(gfx, depth, visualLane, rotAngle) {
+  _drawWallSlab(gfx, depth, visualLane, rotAngle, color) {
     const nextVertex = (visualLane + 1) % CONFIG.NUM_LANES;
     const backDepth = depth + CONFIG.WALL_Z_THICKNESS;
 
@@ -142,7 +152,7 @@ export class EntityRenderer {
     const bI1 = { x: bO1.x + bP.x, y: bO1.y + bP.y };
     const bI2 = { x: bO2.x + bP.x, y: bO2.y + bP.y };
 
-    const c = WALL_COLOR;
+    const c = color || WALL_COLOR;
 
     // Front face rectangle
     drawGlowLine(gfx, fO1.x, fO1.y, fO2.x, fO2.y, c);
@@ -163,7 +173,7 @@ export class EntityRenderer {
     drawGlowLine(gfx, fI2.x, fI2.y, bI2.x, bI2.y, c);
   }
 
-  _drawDoubleWallSlab(gfx, depth, visualLane1, visualLane2, rotAngle) {
+  _drawDoubleWallSlab(gfx, depth, visualLane1, visualLane2, rotAngle, color) {
     const midVertex = (visualLane1 + 1) % CONFIG.NUM_LANES;
     const endVertex = (visualLane2 + 1) % CONFIG.NUM_LANES;
     const backDepth = depth + CONFIG.WALL_Z_THICKNESS;
@@ -192,7 +202,7 @@ export class EntityRenderer {
     const bI1 = { x: bO1.x + bP.x, y: bO1.y + bP.y };
     const bI3 = { x: bO3.x + bP.x, y: bO3.y + bP.y };
 
-    const c = WALL_COLOR;
+    const c = color || WALL_COLOR;
 
     // Front face outline (one continuous piece)
     drawGlowLine(gfx, fO1.x, fO1.y, fOM.x, fOM.y, c);

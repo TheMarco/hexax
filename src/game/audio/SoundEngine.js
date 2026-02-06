@@ -6,6 +6,8 @@ export class SoundEngine {
     this.masterGain = null;
     this.initialized = false;
     this.sounds = {};
+    this.musicSource = null;
+    this.musicGain = null;
   }
 
   init() {
@@ -16,6 +18,9 @@ export class SoundEngine {
     this.masterGain = this.ctx.createGain();
     this.masterGain.gain.value = 0.5; // master volume
     this.masterGain.connect(this.ctx.destination);
+    this.sfxGain = this.ctx.createGain();
+    this.sfxGain.gain.value = 0.3; // SFX volume (relative to master)
+    this.sfxGain.connect(this.masterGain);
     this.initialized = true;
 
     // Preload all sounds
@@ -24,6 +29,8 @@ export class SoundEngine {
     this.loadSound('shoot', '/sounds/shoot.mp3');
     this.loadSound('explosion', '/sounds/explode.mp3');
     this.loadSound('death', '/sounds/death.mp3');
+    this.loadSound('hitwall', '/sounds/hitwall.mp3');
+    this.loadSound('soundtrack', '/sounds/soundtrack.mp3');
   }
 
   async loadSound(name, url) {
@@ -48,7 +55,7 @@ export class SoundEngine {
 
     const source = this.ctx.createBufferSource();
     source.buffer = this.sounds[name];
-    source.connect(this.masterGain);
+    source.connect(this.sfxGain);
     source.start(0);
   }
 
@@ -70,5 +77,39 @@ export class SoundEngine {
 
   playTunnelExplosion() {
     this.playSound('death');
+  }
+
+  playHitWall() {
+    this.playSound('hitwall');
+  }
+
+  startMusic() {
+    if (!this.initialized) return;
+    if (!this.sounds['soundtrack']) {
+      // Buffer still loading — retry shortly
+      setTimeout(() => this.startMusic(), 500);
+      return;
+    }
+    this.stopMusic();
+    this.musicGain = this.ctx.createGain();
+    this.musicGain.gain.value = 1.0;
+    this.musicGain.connect(this.masterGain);
+    this.musicSource = this.ctx.createBufferSource();
+    this.musicSource.buffer = this.sounds['soundtrack'];
+    this.musicSource.loop = true;
+    this.musicSource.connect(this.musicGain);
+    this.musicSource.start(0);
+  }
+
+  stopMusic() {
+    if (this.musicSource) {
+      try { this.musicSource.stop(); } catch (_) {}
+      this.musicSource.disconnect();
+      this.musicSource = null;
+    }
+    if (this.musicGain) {
+      this.musicGain.disconnect();
+      this.musicGain = null;
+    }
   }
 }

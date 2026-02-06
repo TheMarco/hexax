@@ -5,6 +5,7 @@ export class DoubleWall extends Entity {
   constructor(lane, depth) {
     super(lane, depth, 'doublewall');
     this.lane2 = (lane + 1) % CONFIG.NUM_LANES;
+    this.hitFlash = 0;
   }
 
   tick() {

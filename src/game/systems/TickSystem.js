@@ -37,6 +37,9 @@ export class TickSystem {
     // Cleanup from previous enemy tick (lets dead enemies/walls render one full cycle)
     this.entityManager.removeDeadEnemiesAndWalls();
 
+    // Spawn before movement so new entities move immediately
+    this.spawnSystem.maybeSpawn();
+
     // Move enemies and walls
     for (const e of this.entityManager.enemies) {
       if (e.alive) e.tick();
@@ -124,9 +127,6 @@ export class TickSystem {
         }
       }
     }
-
-    // Spawn
-    this.spawnSystem.maybeSpawn();
 
     // Counters
     this.state.tickCount++;

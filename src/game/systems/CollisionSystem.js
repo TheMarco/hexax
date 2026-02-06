@@ -5,14 +5,42 @@ export class CollisionSystem {
     this.entityManager = entityManager;
     this.state = state;
     this.onHit = null; // callback(lane, depth, prevDepth, color) when a hit occurs
+    this.onWallDeflect = null; // callback() when bullet hits a wall
   }
 
   resolve() {
-    const { bullets, enemies } = this.entityManager;
+    const { bullets, enemies, walls, doublewalls } = this.entityManager;
 
     for (const bullet of bullets) {
       if (!bullet.alive) continue;
       const bulletDepth = Math.floor(bullet.depth);
+
+      // Check walls — bullet is destroyed, wall lights up
+      let hitWall = false;
+      for (const wall of walls) {
+        if (!wall.alive) continue;
+        if (bulletDepth === wall.depth && bullet.lane === wall.lane) {
+          bullet.kill();
+          wall.hitFlash = 1.0;
+          if (this.onWallDeflect) this.onWallDeflect();
+          hitWall = true;
+          break;
+        }
+      }
+      if (hitWall) continue;
+
+      for (const dw of doublewalls) {
+        if (!dw.alive) continue;
+        if (bulletDepth === dw.depth && (bullet.lane === dw.lane || bullet.lane === dw.lane2)) {
+          bullet.kill();
+          dw.hitFlash = 1.0;
+          if (this.onWallDeflect) this.onWallDeflect();
+          hitWall = true;
+          break;
+        }
+      }
+      if (hitWall) continue;
+
       for (const enemy of enemies) {
         if (!enemy.alive) continue;
         if (bulletDepth === enemy.depth && bullet.lane === enemy.lane) {
