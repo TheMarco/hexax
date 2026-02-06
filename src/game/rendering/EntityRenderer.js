@@ -1,5 +1,5 @@
 import { CONFIG } from '../config.js';
-import { drawGlowDiamond, drawGlowPolygon, drawGlowLine, drawGlowClaw, drawGlowCircle, drawGlowEllipse } from './GlowRenderer.js';
+import { drawGlowDiamond, drawGlowPolygon, drawGlowLine, drawGlowClaw, drawGlowCircle, drawGlowEllipse, drawGlowArc } from './GlowRenderer.js';
 
 export class EntityRenderer {
   constructor(geometry) {
@@ -155,22 +155,18 @@ export class EntityRenderer {
     const endVertex = (visualLane2 + 1) % CONFIG.NUM_LANES;
     const backDepth = depth + CONFIG.WALL_Z_THICKNESS;
 
-    // Front face: 3 outer vertices
+    // Front face: 3 outer vertices on hex rim
     const fO1 = this.geometry.getVertexLerp(depth, visualLane1, rotAngle);
     const fOM = this.geometry.getVertexLerp(depth, midVertex, rotAngle);
     const fO3 = this.geometry.getVertexLerp(depth, endVertex, rotAngle);
     if (!fO1 || !fOM || !fO3) return;
 
-    // Per-face perpendicular offsets (straight sides)
+    // Single perpendicular for the whole span (one solid piece)
     const fScale = this.geometry.getScaleLerp(depth);
     const fH = CONFIG.WALL_HEIGHT * fScale;
-    const fP1 = this._wallPerp(fO1, fOM, fH);
-    const fP2 = this._wallPerp(fOM, fO3, fH);
-
-    const fI1 = { x: fO1.x + fP1.x, y: fO1.y + fP1.y };
-    const fIM1 = { x: fOM.x + fP1.x, y: fOM.y + fP1.y };
-    const fIM2 = { x: fOM.x + fP2.x, y: fOM.y + fP2.y };
-    const fI3 = { x: fO3.x + fP2.x, y: fO3.y + fP2.y };
+    const fP = this._wallPerp(fO1, fO3, fH);
+    const fI1 = { x: fO1.x + fP.x, y: fO1.y + fP.y };
+    const fI3 = { x: fO3.x + fP.x, y: fO3.y + fP.y };
 
     // Back face: 3 outer vertices
     const bO1 = this.geometry.getVertexAtRadius(backDepth, visualLane1, rotAngle, 1.0);
@@ -179,45 +175,31 @@ export class EntityRenderer {
 
     const bScale = this.geometry.getScaleLerp(backDepth);
     const bH = CONFIG.WALL_HEIGHT * bScale;
-    const bP1 = this._wallPerp(bO1, bOM, bH);
-    const bP2 = this._wallPerp(bOM, bO3, bH);
-
-    const bI1 = { x: bO1.x + bP1.x, y: bO1.y + bP1.y };
-    const bIM1 = { x: bOM.x + bP1.x, y: bOM.y + bP1.y };
-    const bIM2 = { x: bOM.x + bP2.x, y: bOM.y + bP2.y };
-    const bI3 = { x: bO3.x + bP2.x, y: bO3.y + bP2.y };
+    const bP = this._wallPerp(bO1, bO3, bH);
+    const bI1 = { x: bO1.x + bP.x, y: bO1.y + bP.y };
+    const bI3 = { x: bO3.x + bP.x, y: bO3.y + bP.y };
 
     const c = CONFIG.COLORS.TUNNEL;
 
-    // Front face: two rectangles sharing outer middle vertex
+    // Front face outline (one continuous piece)
     drawGlowLine(gfx, fO1.x, fO1.y, fOM.x, fOM.y, c);
-    drawGlowLine(gfx, fOM.x, fOM.y, fIM1.x, fIM1.y, c);
-    drawGlowLine(gfx, fIM1.x, fIM1.y, fI1.x, fI1.y, c);
-    drawGlowLine(gfx, fI1.x, fI1.y, fO1.x, fO1.y, c);
-
     drawGlowLine(gfx, fOM.x, fOM.y, fO3.x, fO3.y, c);
     drawGlowLine(gfx, fO3.x, fO3.y, fI3.x, fI3.y, c);
-    drawGlowLine(gfx, fI3.x, fI3.y, fIM2.x, fIM2.y, c);
-    drawGlowLine(gfx, fIM2.x, fIM2.y, fOM.x, fOM.y, c);
+    drawGlowLine(gfx, fI3.x, fI3.y, fI1.x, fI1.y, c);
+    drawGlowLine(gfx, fI1.x, fI1.y, fO1.x, fO1.y, c);
 
-    // Back face: two rectangles
+    // Back face outline
     drawGlowLine(gfx, bO1.x, bO1.y, bOM.x, bOM.y, c);
-    drawGlowLine(gfx, bOM.x, bOM.y, bIM1.x, bIM1.y, c);
-    drawGlowLine(gfx, bIM1.x, bIM1.y, bI1.x, bI1.y, c);
-    drawGlowLine(gfx, bI1.x, bI1.y, bO1.x, bO1.y, c);
-
     drawGlowLine(gfx, bOM.x, bOM.y, bO3.x, bO3.y, c);
     drawGlowLine(gfx, bO3.x, bO3.y, bI3.x, bI3.y, c);
-    drawGlowLine(gfx, bI3.x, bI3.y, bIM2.x, bIM2.y, c);
-    drawGlowLine(gfx, bIM2.x, bIM2.y, bOM.x, bOM.y, c);
+    drawGlowLine(gfx, bI3.x, bI3.y, bI1.x, bI1.y, c);
+    drawGlowLine(gfx, bI1.x, bI1.y, bO1.x, bO1.y, c);
 
-    // Connecting edges (6 corners)
+    // Connecting edges (5 corners)
     drawGlowLine(gfx, fO1.x, fO1.y, bO1.x, bO1.y, c);
     drawGlowLine(gfx, fOM.x, fOM.y, bOM.x, bOM.y, c);
     drawGlowLine(gfx, fO3.x, fO3.y, bO3.x, bO3.y, c);
     drawGlowLine(gfx, fI1.x, fI1.y, bI1.x, bI1.y, c);
-    drawGlowLine(gfx, fIM1.x, fIM1.y, bIM1.x, bIM1.y, c);
-    drawGlowLine(gfx, fIM2.x, fIM2.y, bIM2.x, bIM2.y, c);
     drawGlowLine(gfx, fI3.x, fI3.y, bI3.x, bI3.y, c);
   }
 
@@ -244,7 +226,7 @@ export class EntityRenderer {
     const ox = cx - nx * thickness * 0.5;
     const oy = cy - ny * thickness * 0.5;
 
-    // Inner disc face (behind)
+    // Back disc face (full ellipse — thin puck body barely occludes)
     drawGlowEllipse(gfx, ix, iy, r, r * tilt, color, rotation);
 
     // Side connecting lines at left/right extremes
@@ -255,7 +237,7 @@ export class EntityRenderer {
       ix - px * r, iy - py * r,
       ox - px * r, oy - py * r, color);
 
-    // Outer disc face (in front)
+    // Front disc face: full ellipse (always visible)
     drawGlowEllipse(gfx, ox, oy, r, r * tilt, color, rotation);
   }
 

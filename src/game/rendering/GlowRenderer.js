@@ -70,6 +70,34 @@ export function drawGlowEllipse(gfx, cx, cy, rx, ry, color, rotation = 0, segmen
   drawGlowPolygon(gfx, points, color);
 }
 
+export function drawGlowArc(gfx, cx, cy, rx, ry, color, rotation = 0, startAngle = 0, endAngle = Math.PI * 2, segments = 16) {
+  const cosR = Math.cos(rotation);
+  const sinR = Math.sin(rotation);
+  const range = endAngle - startAngle;
+  const numPts = Math.max(2, Math.round(segments * Math.abs(range) / (Math.PI * 2)));
+
+  const points = [];
+  for (let i = 0; i <= numPts; i++) {
+    const angle = startAngle + (i / numPts) * range;
+    const lx = rx * Math.cos(angle);
+    const ly = ry * Math.sin(angle);
+    points.push({
+      x: cx + lx * cosR - ly * sinR,
+      y: cy + lx * sinR + ly * cosR,
+    });
+  }
+
+  for (const pass of GLOW_PASSES) {
+    gfx.lineStyle(pass.width, color, pass.alpha);
+    gfx.beginPath();
+    gfx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      gfx.lineTo(points[i].x, points[i].y);
+    }
+    gfx.strokePath();
+  }
+}
+
 export function drawGlowClaw(gfx, cx, cy, size, color) {
   const ARMS = 3;
   const armLen = size * 1.1;
