@@ -23,6 +23,19 @@ export class SoundEngine {
     this.sfxGain.connect(this.masterGain);
     this.initialized = true;
 
+    // iOS requires AudioContext to be resumed from a user gesture
+    const resumeAudio = () => {
+      if (this.ctx.state === 'suspended') {
+        this.ctx.resume();
+      }
+      document.removeEventListener('touchstart', resumeAudio);
+      document.removeEventListener('touchend', resumeAudio);
+      document.removeEventListener('click', resumeAudio);
+    };
+    document.addEventListener('touchstart', resumeAudio);
+    document.addEventListener('touchend', resumeAudio);
+    document.addEventListener('click', resumeAudio);
+
     // Preload all sounds
     this.loadSound('getready', '/sounds/getready.mp3');
     this.loadSound('twist', '/sounds/twist.mp3');
@@ -45,14 +58,9 @@ export class SoundEngine {
   }
 
   playSound(name) {
-    if (!this.initialized) {
-      console.warn(`SoundEngine not initialized, cannot play ${name}`);
-      return;
-    }
-    if (!this.sounds[name]) {
-      console.warn(`Sound ${name} not loaded yet`);
-      return;
-    }
+    if (!this.initialized) return;
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+    if (!this.sounds[name]) return;
 
     const source = this.ctx.createBufferSource();
     source.buffer = this.sounds[name];
@@ -90,6 +98,7 @@ export class SoundEngine {
 
   startMusic() {
     if (!this.initialized) return;
+    if (this.ctx.state === 'suspended') this.ctx.resume();
     if (!this.sounds['soundtrack']) {
       // Buffer still loading — retry shortly
       setTimeout(() => this.startMusic(), 500);
