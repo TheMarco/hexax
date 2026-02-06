@@ -1,5 +1,5 @@
 import { CONFIG } from '../config.js';
-import { drawGlowDiamond, drawGlowPolygon, drawGlowLine, drawGlowClaw } from './GlowRenderer.js';
+import { drawGlowDiamond, drawGlowPolygon, drawGlowLine, drawGlowClaw, drawGlowCircle, drawGlowEllipse } from './GlowRenderer.js';
 
 export class EntityRenderer {
   constructor(geometry) {
@@ -25,16 +25,13 @@ export class EntityRenderer {
         const pos = this.geometry.getMidpointLerp(visualDepth, visualLane, rotAngle);
         if (pos) {
           const scale = this.geometry.getScaleLerp(visualDepth);
-          const size = 22 * scale;
+          const size = 44 * scale;
 
           if (enemy.type === 'tank') {
-            if (enemy.hp >= 2) {
-              drawGlowClaw(gfx, pos.x, pos.y, Math.max(size, 5), CONFIG.COLORS.TANK);
-            } else {
-              this._drawCrackedDiamond(gfx, pos.x, pos.y, Math.max(size, 5), CONFIG.COLORS.TANK_DAMAGED);
-            }
+            const tankColor = enemy.hp >= 2 ? CONFIG.COLORS.TANK : CONFIG.COLORS.TANK_DAMAGED;
+            this._drawTank(gfx, pos.x, pos.y, Math.max(size, 5), tankColor, enemy.hp, enemy.hitSide);
           } else {
-            drawGlowClaw(gfx, pos.x, pos.y, Math.max(size, 4), CONFIG.COLORS.ENEMY);
+            this._drawPuck(gfx, pos.x, pos.y, Math.max(size, 4), CONFIG.COLORS.ENEMY);
           }
         }
       }
@@ -90,82 +87,225 @@ export class EntityRenderer {
     }
   }
 
-  _drawWallSlab(gfx, depth, visualLane, rotAngle) {
-    const nextVertex = (visualLane + 1) % CONFIG.NUM_LANES;
-
-    const v1 = this.geometry.getVertexLerp(depth, visualLane, rotAngle);
-    const v2 = this.geometry.getVertexLerp(depth, nextVertex, rotAngle);
-    if (!v1 || !v2) return;
-
+  _wallPerp(v1, v2, height) {
+    const ex = v2.x - v1.x;
+    const ey = v2.y - v1.y;
+    let px = -ey;
+    let py = ex;
     const mx = (v1.x + v2.x) / 2;
     const my = (v1.y + v2.y) / 2;
-    const dx = CONFIG.CENTER_X - mx;
-    const dy = CONFIG.CENTER_Y - my;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    const wallHeight = 44 * this.geometry.getScaleLerp(depth);
-    const nx = (dx / dist) * wallHeight;
-    const ny = (dy / dist) * wallHeight;
+    // Point inward (toward center, into the lane)
+    if (px * (CONFIG.CENTER_X - mx) + py * (CONFIG.CENTER_Y - my) < 0) {
+      px = -px;
+      py = -py;
+    }
+    const len = Math.sqrt(px * px + py * py);
+    return { x: (px / len) * height, y: (py / len) * height };
+  }
 
-    const v1i = { x: v1.x + nx, y: v1.y + ny };
-    const v2i = { x: v2.x + nx, y: v2.y + ny };
+  _drawWallSlab(gfx, depth, visualLane, rotAngle) {
+    const nextVertex = (visualLane + 1) % CONFIG.NUM_LANES;
+    const backDepth = depth + CONFIG.WALL_Z_THICKNESS;
 
-    // Bottom edge (needed now that walls lerp between rings)
-    drawGlowLine(gfx, v1.x, v1.y, v2.x, v2.y, CONFIG.COLORS.TUNNEL);
-    // Sides + inner edge
-    drawGlowLine(gfx, v1.x, v1.y, v1i.x, v1i.y, CONFIG.COLORS.TUNNEL);
-    drawGlowLine(gfx, v1i.x, v1i.y, v2i.x, v2i.y, CONFIG.COLORS.TUNNEL);
-    drawGlowLine(gfx, v2i.x, v2i.y, v2.x, v2.y, CONFIG.COLORS.TUNNEL);
-    // Diagonal X
-    drawGlowLine(gfx, v1.x, v1.y, v2i.x, v2i.y, CONFIG.COLORS.TUNNEL);
-    drawGlowLine(gfx, v2.x, v2.y, v1i.x, v1i.y, CONFIG.COLORS.TUNNEL);
+    // Front face outer vertices
+    const fO1 = this.geometry.getVertexLerp(depth, visualLane, rotAngle);
+    const fO2 = this.geometry.getVertexLerp(depth, nextVertex, rotAngle);
+    if (!fO1 || !fO2) return;
+
+    // Straight perpendicular offset for wall height
+    const fScale = this.geometry.getScaleLerp(depth);
+    const fH = CONFIG.WALL_HEIGHT * fScale;
+    const fP = this._wallPerp(fO1, fO2, fH);
+    const fI1 = { x: fO1.x + fP.x, y: fO1.y + fP.y };
+    const fI2 = { x: fO2.x + fP.x, y: fO2.y + fP.y };
+
+    // Back face outer vertices
+    const bO1 = this.geometry.getVertexAtRadius(backDepth, visualLane, rotAngle, 1.0);
+    const bO2 = this.geometry.getVertexAtRadius(backDepth, nextVertex, rotAngle, 1.0);
+
+    const bScale = this.geometry.getScaleLerp(backDepth);
+    const bH = CONFIG.WALL_HEIGHT * bScale;
+    const bP = this._wallPerp(bO1, bO2, bH);
+    const bI1 = { x: bO1.x + bP.x, y: bO1.y + bP.y };
+    const bI2 = { x: bO2.x + bP.x, y: bO2.y + bP.y };
+
+    const c = CONFIG.COLORS.TUNNEL;
+
+    // Front face rectangle
+    drawGlowLine(gfx, fO1.x, fO1.y, fO2.x, fO2.y, c);
+    drawGlowLine(gfx, fO2.x, fO2.y, fI2.x, fI2.y, c);
+    drawGlowLine(gfx, fI2.x, fI2.y, fI1.x, fI1.y, c);
+    drawGlowLine(gfx, fI1.x, fI1.y, fO1.x, fO1.y, c);
+
+    // Back face rectangle
+    drawGlowLine(gfx, bO1.x, bO1.y, bO2.x, bO2.y, c);
+    drawGlowLine(gfx, bO2.x, bO2.y, bI2.x, bI2.y, c);
+    drawGlowLine(gfx, bI2.x, bI2.y, bI1.x, bI1.y, c);
+    drawGlowLine(gfx, bI1.x, bI1.y, bO1.x, bO1.y, c);
+
+    // Connecting edges (4 corners)
+    drawGlowLine(gfx, fO1.x, fO1.y, bO1.x, bO1.y, c);
+    drawGlowLine(gfx, fO2.x, fO2.y, bO2.x, bO2.y, c);
+    drawGlowLine(gfx, fI1.x, fI1.y, bI1.x, bI1.y, c);
+    drawGlowLine(gfx, fI2.x, fI2.y, bI2.x, bI2.y, c);
   }
 
   _drawDoubleWallSlab(gfx, depth, visualLane1, visualLane2, rotAngle) {
-    const v1 = this.geometry.getVertexLerp(depth, visualLane1, rotAngle);
-    const vMid = this.geometry.getVertexLerp(depth, (visualLane1 + 1) % CONFIG.NUM_LANES, rotAngle);
-    const v3 = this.geometry.getVertexLerp(depth, (visualLane2 + 1) % CONFIG.NUM_LANES, rotAngle);
-    if (!v1 || !vMid || !v3) return;
+    const midVertex = (visualLane1 + 1) % CONFIG.NUM_LANES;
+    const endVertex = (visualLane2 + 1) % CONFIG.NUM_LANES;
+    const backDepth = depth + CONFIG.WALL_Z_THICKNESS;
 
-    const spanMx = (v1.x + v3.x) / 2;
-    const spanMy = (v1.y + v3.y) / 2;
-    const dx = CONFIG.CENTER_X - spanMx;
-    const dy = CONFIG.CENTER_Y - spanMy;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    const wallHeight = 44 * this.geometry.getScaleLerp(depth);
-    const nx = (dx / dist) * wallHeight;
-    const ny = (dy / dist) * wallHeight;
+    // Front face: 3 outer vertices
+    const fO1 = this.geometry.getVertexLerp(depth, visualLane1, rotAngle);
+    const fOM = this.geometry.getVertexLerp(depth, midVertex, rotAngle);
+    const fO3 = this.geometry.getVertexLerp(depth, endVertex, rotAngle);
+    if (!fO1 || !fOM || !fO3) return;
 
-    const v1i = { x: v1.x + nx, y: v1.y + ny };
-    const vMidI = { x: vMid.x + nx, y: vMid.y + ny };
-    const v3i = { x: v3.x + nx, y: v3.y + ny };
+    // Per-face perpendicular offsets (straight sides)
+    const fScale = this.geometry.getScaleLerp(depth);
+    const fH = CONFIG.WALL_HEIGHT * fScale;
+    const fP1 = this._wallPerp(fO1, fOM, fH);
+    const fP2 = this._wallPerp(fOM, fO3, fH);
 
-    // Bottom edges (needed now that walls lerp between rings)
-    drawGlowLine(gfx, v1.x, v1.y, vMid.x, vMid.y, CONFIG.COLORS.TUNNEL);
-    drawGlowLine(gfx, vMid.x, vMid.y, v3.x, v3.y, CONFIG.COLORS.TUNNEL);
+    const fI1 = { x: fO1.x + fP1.x, y: fO1.y + fP1.y };
+    const fIM1 = { x: fOM.x + fP1.x, y: fOM.y + fP1.y };
+    const fIM2 = { x: fOM.x + fP2.x, y: fOM.y + fP2.y };
+    const fI3 = { x: fO3.x + fP2.x, y: fO3.y + fP2.y };
 
-    // Outer sides
-    drawGlowLine(gfx, v1.x, v1.y, v1i.x, v1i.y, CONFIG.COLORS.TUNNEL);
-    drawGlowLine(gfx, v3.x, v3.y, v3i.x, v3i.y, CONFIG.COLORS.TUNNEL);
+    // Back face: 3 outer vertices
+    const bO1 = this.geometry.getVertexAtRadius(backDepth, visualLane1, rotAngle, 1.0);
+    const bOM = this.geometry.getVertexAtRadius(backDepth, midVertex, rotAngle, 1.0);
+    const bO3 = this.geometry.getVertexAtRadius(backDepth, endVertex, rotAngle, 1.0);
 
-    // Inner edges
-    drawGlowLine(gfx, v1i.x, v1i.y, vMidI.x, vMidI.y, CONFIG.COLORS.TUNNEL);
-    drawGlowLine(gfx, vMidI.x, vMidI.y, v3i.x, v3i.y, CONFIG.COLORS.TUNNEL);
+    const bScale = this.geometry.getScaleLerp(backDepth);
+    const bH = CONFIG.WALL_HEIGHT * bScale;
+    const bP1 = this._wallPerp(bO1, bOM, bH);
+    const bP2 = this._wallPerp(bOM, bO3, bH);
 
-    // Center divider (inner)
-    drawGlowLine(gfx, vMid.x, vMid.y, vMidI.x, vMidI.y, CONFIG.COLORS.TUNNEL);
+    const bI1 = { x: bO1.x + bP1.x, y: bO1.y + bP1.y };
+    const bIM1 = { x: bOM.x + bP1.x, y: bOM.y + bP1.y };
+    const bIM2 = { x: bOM.x + bP2.x, y: bOM.y + bP2.y };
+    const bI3 = { x: bO3.x + bP2.x, y: bO3.y + bP2.y };
 
-    // Diagonal X on each face
-    drawGlowLine(gfx, v1.x, v1.y, vMidI.x, vMidI.y, CONFIG.COLORS.TUNNEL);
-    drawGlowLine(gfx, vMid.x, vMid.y, v1i.x, v1i.y, CONFIG.COLORS.TUNNEL);
-    drawGlowLine(gfx, vMid.x, vMid.y, v3i.x, v3i.y, CONFIG.COLORS.TUNNEL);
-    drawGlowLine(gfx, v3.x, v3.y, vMidI.x, vMidI.y, CONFIG.COLORS.TUNNEL);
+    const c = CONFIG.COLORS.TUNNEL;
+
+    // Front face: two rectangles sharing outer middle vertex
+    drawGlowLine(gfx, fO1.x, fO1.y, fOM.x, fOM.y, c);
+    drawGlowLine(gfx, fOM.x, fOM.y, fIM1.x, fIM1.y, c);
+    drawGlowLine(gfx, fIM1.x, fIM1.y, fI1.x, fI1.y, c);
+    drawGlowLine(gfx, fI1.x, fI1.y, fO1.x, fO1.y, c);
+
+    drawGlowLine(gfx, fOM.x, fOM.y, fO3.x, fO3.y, c);
+    drawGlowLine(gfx, fO3.x, fO3.y, fI3.x, fI3.y, c);
+    drawGlowLine(gfx, fI3.x, fI3.y, fIM2.x, fIM2.y, c);
+    drawGlowLine(gfx, fIM2.x, fIM2.y, fOM.x, fOM.y, c);
+
+    // Back face: two rectangles
+    drawGlowLine(gfx, bO1.x, bO1.y, bOM.x, bOM.y, c);
+    drawGlowLine(gfx, bOM.x, bOM.y, bIM1.x, bIM1.y, c);
+    drawGlowLine(gfx, bIM1.x, bIM1.y, bI1.x, bI1.y, c);
+    drawGlowLine(gfx, bI1.x, bI1.y, bO1.x, bO1.y, c);
+
+    drawGlowLine(gfx, bOM.x, bOM.y, bO3.x, bO3.y, c);
+    drawGlowLine(gfx, bO3.x, bO3.y, bI3.x, bI3.y, c);
+    drawGlowLine(gfx, bI3.x, bI3.y, bIM2.x, bIM2.y, c);
+    drawGlowLine(gfx, bIM2.x, bIM2.y, bOM.x, bOM.y, c);
+
+    // Connecting edges (6 corners)
+    drawGlowLine(gfx, fO1.x, fO1.y, bO1.x, bO1.y, c);
+    drawGlowLine(gfx, fOM.x, fOM.y, bOM.x, bOM.y, c);
+    drawGlowLine(gfx, fO3.x, fO3.y, bO3.x, bO3.y, c);
+    drawGlowLine(gfx, fI1.x, fI1.y, bI1.x, bI1.y, c);
+    drawGlowLine(gfx, fIM1.x, fIM1.y, bIM1.x, bIM1.y, c);
+    drawGlowLine(gfx, fIM2.x, fIM2.y, bIM2.x, bIM2.y, c);
+    drawGlowLine(gfx, fI3.x, fI3.y, bI3.x, bI3.y, c);
   }
 
-  _drawCrackedDiamond(gfx, cx, cy, size, color) {
-    drawGlowDiamond(gfx, cx, cy, size, color);
-    const s = size * 0.6;
-    drawGlowLine(gfx, cx - s, cy - s, cx + s, cy + s, color);
-    drawGlowLine(gfx, cx + s, cy - s, cx - s, cy + s, color);
+  _drawPuck(gfx, cx, cy, size, color) {
+    // Horizontally flying hockey puck: flat disc perpendicular to outward direction
+    const dx = CONFIG.CENTER_X - cx;
+    const dy = CONFIG.CENTER_Y - cy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const nx = dx / dist;  // toward center
+    const ny = dy / dist;
+    const px = -ny;  // perpendicular (along face edge)
+    const py = nx;
+
+    const r = size * 0.5;
+    const tilt = 0.35;          // foreshortening of the disc face
+    const thickness = size * 0.2;
+    const rotation = Math.atan2(py, px);
+
+    // Inner face (toward center, behind)
+    const ix = cx + nx * thickness * 0.5;
+    const iy = cy + ny * thickness * 0.5;
+
+    // Outer face (away from center, in front)
+    const ox = cx - nx * thickness * 0.5;
+    const oy = cy - ny * thickness * 0.5;
+
+    // Inner disc face (behind)
+    drawGlowEllipse(gfx, ix, iy, r, r * tilt, color, rotation);
+
+    // Side connecting lines at left/right extremes
+    drawGlowLine(gfx,
+      ix + px * r, iy + py * r,
+      ox + px * r, oy + py * r, color);
+    drawGlowLine(gfx,
+      ix - px * r, iy - py * r,
+      ox - px * r, oy - py * r, color);
+
+    // Outer disc face (in front)
+    drawGlowEllipse(gfx, ox, oy, r, r * tilt, color, rotation);
+  }
+
+  _drawTank(gfx, cx, cy, size, color, hp, hitSide) {
+    // O=O (full) or O= / =O (damaged)
+    const dx = CONFIG.CENTER_X - cx;
+    const dy = CONFIG.CENTER_Y - cy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const nx = dx / dist;  // toward center
+    const ny = dy / dist;
+    const px = -ny;  // perpendicular (along face edge)
+    const py = nx;
+
+    const ballR = size * 0.32;
+    const spacing = size * 0.55;
+    const barGap = ballR * 0.3;
+
+    // Ball positions (left and right along the face edge)
+    const lx = cx - px * spacing;
+    const ly = cy - py * spacing;
+    const rx = cx + px * spacing;
+    const ry = cy + py * spacing;
+
+    const drawLeft = hp >= 2 || hitSide === 'right';
+    const drawRight = hp >= 2 || hitSide === 'left';
+
+    // Draw 3D spheres (circle + meridian ellipse)
+    if (drawLeft) {
+      const va = Math.atan2(ly - CONFIG.CENTER_Y, lx - CONFIG.CENTER_X);
+      drawGlowCircle(gfx, lx, ly, ballR, color);
+      drawGlowEllipse(gfx, lx, ly, ballR * 0.3, ballR, color, va);
+    }
+    if (drawRight) {
+      const va = Math.atan2(ry - CONFIG.CENTER_Y, rx - CONFIG.CENTER_X);
+      drawGlowCircle(gfx, rx, ry, ballR, color);
+      drawGlowEllipse(gfx, rx, ry, ballR * 0.3, ballR, color, va);
+    }
+
+    // Double bar connecting the two positions (= sign)
+    const blx = lx + px * ballR;
+    const bly = ly + py * ballR;
+    const brx = rx - px * ballR;
+    const bry = ry - py * ballR;
+
+    drawGlowLine(gfx,
+      blx + nx * barGap, bly + ny * barGap,
+      brx + nx * barGap, bry + ny * barGap, color);
+    drawGlowLine(gfx,
+      blx - nx * barGap, bly - ny * barGap,
+      brx - nx * barGap, bry - ny * barGap, color);
   }
 
   _drawShip(gfx, visualOffset, rotAngle) {

@@ -38,4 +38,7 @@ export const CONFIG = Object.freeze({
     TANK_DAMAGED: 0x88bbff,
     ACTIVE_LANE: 0xbbffdd,
   },
+
+  WALL_Z_THICKNESS: 0.15,
+  WALL_HEIGHT: 40,
 });

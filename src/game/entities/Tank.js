@@ -13,6 +13,9 @@ export class Tank extends Entity {
 
   hit() {
     this.hp--;
+    if (this.hp === 1) {
+      this.hitSide = Math.random() < 0.5 ? 'left' : 'right';
+    }
     if (this.hp <= 0) this.kill();
     return this.hp <= 0;
   }

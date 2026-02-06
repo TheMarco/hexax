@@ -42,6 +42,34 @@ export function drawGlowDiamond(gfx, cx, cy, size, color) {
   drawGlowPolygon(gfx, pts, color);
 }
 
+export function drawGlowCircle(gfx, cx, cy, radius, color, segments = 16) {
+  const points = [];
+  for (let i = 0; i < segments; i++) {
+    const angle = (i / segments) * Math.PI * 2;
+    points.push({
+      x: cx + radius * Math.cos(angle),
+      y: cy + radius * Math.sin(angle),
+    });
+  }
+  drawGlowPolygon(gfx, points, color);
+}
+
+export function drawGlowEllipse(gfx, cx, cy, rx, ry, color, rotation = 0, segments = 16) {
+  const points = [];
+  const cosR = Math.cos(rotation);
+  const sinR = Math.sin(rotation);
+  for (let i = 0; i < segments; i++) {
+    const angle = (i / segments) * Math.PI * 2;
+    const lx = rx * Math.cos(angle);
+    const ly = ry * Math.sin(angle);
+    points.push({
+      x: cx + lx * cosR - ly * sinR,
+      y: cy + lx * sinR + ly * cosR,
+    });
+  }
+  drawGlowPolygon(gfx, points, color);
+}
+
 export function drawGlowClaw(gfx, cx, cy, size, color) {
   const ARMS = 3;
   const armLen = size * 1.1;

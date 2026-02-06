@@ -2,107 +2,80 @@ import { CONFIG } from '../config.js';
 
 export class TunnelGeometry {
   constructor() {
-    this.rings = []; // rings[depth][vertexIndex] = {x, y}
-    this.midpoints = []; // midpoints[depth][laneIndex] = {x, y}
-    this.scales = [];
-    this._compute();
+    // No precomputed arrays — everything is computed on the fly
   }
 
-  _compute() {
-    const { NUM_SEGMENTS, NUM_LANES, R0, SCALE_MIN, SCALE_POWER, ANGLE_OFFSET, CENTER_X, CENTER_Y } = CONFIG;
+  // --- Internal helpers ---
 
-    for (let i = 0; i < NUM_SEGMENTS; i++) {
-      const t = i / (NUM_SEGMENTS - 1);
-      const scale = 1.0 - (1.0 - SCALE_MIN) * Math.pow(t, SCALE_POWER);
-      this.scales.push(scale);
-
-      const radius = R0 * scale;
-      const vertices = [];
-
-      for (let k = 0; k < NUM_LANES; k++) {
-        const angle = k * (Math.PI / 3) + ANGLE_OFFSET;
-        vertices.push({
-          x: CENTER_X + radius * Math.cos(angle),
-          y: CENTER_Y + radius * Math.sin(angle),
-        });
-      }
-
-      this.rings.push(vertices);
-
-      // Midpoints: center of each edge (lane face)
-      const mids = [];
-      for (let k = 0; k < NUM_LANES; k++) {
-        const next = (k + 1) % NUM_LANES;
-        mids.push({
-          x: (vertices[k].x + vertices[next].x) / 2,
-          y: (vertices[k].y + vertices[next].y) / 2,
-        });
-      }
-      this.midpoints.push(mids);
-    }
+  _getScale(depth) {
+    const t = depth / CONFIG.MAX_DEPTH;
+    return 1.0 - (1.0 - CONFIG.SCALE_MIN) * Math.pow(t, CONFIG.SCALE_POWER);
   }
+
+  _project(x3d, y3d, z) {
+    // Perspective projection: screen = center + worldOffset / z
+    // Since z = 1/scale, dividing by z is the same as multiplying by scale
+    return {
+      x: CONFIG.CENTER_X + x3d / z,
+      y: CONFIG.CENTER_Y + y3d / z,
+    };
+  }
+
+  _computeVertex(depth, vertexIndex, rotAngle) {
+    const scale = this._getScale(depth);
+    const z = 1.0 / scale;
+    const angle = vertexIndex * (Math.PI / 3) + CONFIG.ANGLE_OFFSET + rotAngle;
+    const x3d = CONFIG.R0 * Math.cos(angle);
+    const y3d = CONFIG.R0 * Math.sin(angle);
+    return this._project(x3d, y3d, z);
+  }
+
+  _computeMidpoint(depth, laneIndex, rotAngle) {
+    const scale = this._getScale(depth);
+    const z = 1.0 / scale;
+    const a1 = laneIndex * (Math.PI / 3) + CONFIG.ANGLE_OFFSET + rotAngle;
+    const a2 = ((laneIndex + 1) % CONFIG.NUM_LANES) * (Math.PI / 3) + CONFIG.ANGLE_OFFSET + rotAngle;
+    const x3d = CONFIG.R0 * (Math.cos(a1) + Math.cos(a2)) / 2;
+    const y3d = CONFIG.R0 * (Math.sin(a1) + Math.sin(a2)) / 2;
+    return this._project(x3d, y3d, z);
+  }
+
+  _computeVertexAtRadius(depth, vertexIndex, rotAngle, radiusFraction) {
+    const scale = this._getScale(depth);
+    const z = 1.0 / scale;
+    const angle = vertexIndex * (Math.PI / 3) + CONFIG.ANGLE_OFFSET + rotAngle;
+    const r = CONFIG.R0 * radiusFraction;
+    const x3d = r * Math.cos(angle);
+    const y3d = r * Math.sin(angle);
+    return this._project(x3d, y3d, z);
+  }
+
+  // --- Public API (signatures unchanged) ---
 
   getVertex(depth, vertexIndex, rotAngle = 0) {
-    const pt = this.rings[depth][vertexIndex];
-    return rotAngle === 0 ? pt : this._rotate(pt, rotAngle);
-  }
-
-  getMidpoint(depth, laneIndex, rotAngle = 0) {
-    const pt = this.midpoints[depth][laneIndex];
-    return rotAngle === 0 ? pt : this._rotate(pt, rotAngle);
-  }
-
-  // Interpolated midpoint for fractional depth (e.g. 2.5 = halfway between ring 2 and 3)
-  getMidpointLerp(depth, laneIndex, rotAngle = 0) {
-    const d0 = Math.floor(depth);
-    const d1 = Math.ceil(depth);
-    const frac = depth - d0;
-
-    if (d0 < 0 || d1 > CONFIG.MAX_DEPTH) return null;
-    if (d0 === d1) return this.getMidpoint(d0, laneIndex, rotAngle);
-
-    const p0 = this.midpoints[d0][laneIndex];
-    const p1 = this.midpoints[d1][laneIndex];
-    const pt = {
-      x: p0.x + (p1.x - p0.x) * frac,
-      y: p0.y + (p1.y - p0.y) * frac,
-    };
-    return rotAngle === 0 ? pt : this._rotate(pt, rotAngle);
+    return this._computeVertex(depth, vertexIndex, rotAngle);
   }
 
   getVertexLerp(depth, vertexIndex, rotAngle = 0) {
-    const d0 = Math.floor(depth);
-    const d1 = Math.ceil(depth);
-    const frac = depth - d0;
+    if (depth < 0 || depth > CONFIG.MAX_DEPTH) return null;
+    return this._computeVertex(depth, vertexIndex, rotAngle);
+  }
 
-    if (d0 < 0 || d1 > CONFIG.MAX_DEPTH) return null;
-    if (d0 === d1) return this.getVertex(d0, vertexIndex, rotAngle);
+  getMidpoint(depth, laneIndex, rotAngle = 0) {
+    return this._computeMidpoint(depth, laneIndex, rotAngle);
+  }
 
-    const p0 = this.rings[d0][vertexIndex];
-    const p1 = this.rings[d1][vertexIndex];
-    const pt = {
-      x: p0.x + (p1.x - p0.x) * frac,
-      y: p0.y + (p1.y - p0.y) * frac,
-    };
-    return rotAngle === 0 ? pt : this._rotate(pt, rotAngle);
+  getMidpointLerp(depth, laneIndex, rotAngle = 0) {
+    if (depth < 0 || depth > CONFIG.MAX_DEPTH) return null;
+    return this._computeMidpoint(depth, laneIndex, rotAngle);
   }
 
   getScaleLerp(depth) {
-    const d0 = Math.floor(depth);
-    const d1 = Math.ceil(depth);
-    if (d0 < 0 || d1 > CONFIG.MAX_DEPTH) return 0;
-    if (d0 === d1) return this.scales[d0];
-    const frac = depth - d0;
-    return this.scales[d0] + (this.scales[d1] - this.scales[d0]) * frac;
+    if (depth < 0 || depth > CONFIG.MAX_DEPTH) return 0;
+    return this._getScale(depth);
   }
 
-  _rotate(pt, angle) {
-    const cx = CONFIG.CENTER_X, cy = CONFIG.CENTER_Y;
-    const cos = Math.cos(angle), sin = Math.sin(angle);
-    const dx = pt.x - cx, dy = pt.y - cy;
-    return {
-      x: cx + dx * cos - dy * sin,
-      y: cy + dx * sin + dy * cos,
-    };
+  getVertexAtRadius(depth, vertexIndex, rotAngle, radiusFraction) {
+    return this._computeVertexAtRadius(depth, vertexIndex, rotAngle, radiusFraction);
   }
 }
