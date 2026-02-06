@@ -1,6 +1,15 @@
 import { CONFIG } from '../config.js';
 import { drawGlowDiamond, drawGlowPolygon, drawGlowLine, drawGlowClaw, drawGlowCircle, drawGlowEllipse, drawGlowArc } from './GlowRenderer.js';
 
+// Dimmed tunnel color for walls (matches tunnel renderer)
+const WALL_COLOR = (() => {
+  const t = CONFIG.COLORS.TUNNEL;
+  const r = ((t >> 16) & 0xff) >> 1;
+  const g = ((t >> 8) & 0xff) >> 1;
+  const b = (t & 0xff) >> 1;
+  return (r << 16) | (g << 8) | b;
+})();
+
 export class EntityRenderer {
   constructor(geometry) {
     this.geometry = geometry;
@@ -25,11 +34,15 @@ export class EntityRenderer {
         const pos = this.geometry.getMidpointLerp(visualDepth, visualLane, rotAngle);
         if (pos) {
           const scale = this.geometry.getScaleLerp(visualDepth);
-          const size = 44 * scale;
+          const size = 114 * scale;
 
           if (enemy.type === 'tank') {
             const tankColor = enemy.hp >= 2 ? CONFIG.COLORS.TANK : CONFIG.COLORS.TANK_DAMAGED;
             this._drawTank(gfx, pos.x, pos.y, Math.max(size, 5), tankColor, enemy.hp, enemy.hitSide);
+          } else if (enemy.type === 'bomb') {
+            this._drawBomb(gfx, pos.x, pos.y, Math.max(size, 5), CONFIG.COLORS.BOMB);
+          } else if (enemy.type === 'heart') {
+            this._drawHeart(gfx, pos.x, pos.y, Math.max(size, 5), CONFIG.COLORS.HEART);
           } else {
             this._drawPuck(gfx, pos.x, pos.y, Math.max(size, 4), CONFIG.COLORS.ENEMY);
           }
@@ -129,7 +142,7 @@ export class EntityRenderer {
     const bI1 = { x: bO1.x + bP.x, y: bO1.y + bP.y };
     const bI2 = { x: bO2.x + bP.x, y: bO2.y + bP.y };
 
-    const c = CONFIG.COLORS.TUNNEL;
+    const c = WALL_COLOR;
 
     // Front face rectangle
     drawGlowLine(gfx, fO1.x, fO1.y, fO2.x, fO2.y, c);
@@ -179,7 +192,7 @@ export class EntityRenderer {
     const bI1 = { x: bO1.x + bP.x, y: bO1.y + bP.y };
     const bI3 = { x: bO3.x + bP.x, y: bO3.y + bP.y };
 
-    const c = CONFIG.COLORS.TUNNEL;
+    const c = WALL_COLOR;
 
     // Front face outline (one continuous piece)
     drawGlowLine(gfx, fO1.x, fO1.y, fOM.x, fOM.y, c);
@@ -288,6 +301,85 @@ export class EntityRenderer {
     drawGlowLine(gfx,
       blx - nx * barGap, bly - ny * barGap,
       brx - nx * barGap, bry - ny * barGap, color);
+  }
+
+  _drawBomb(gfx, cx, cy, size, color) {
+    // 3D sphere with spikes
+    const r = size * 0.4;
+    const va = Math.atan2(cy - CONFIG.CENTER_Y, cx - CONFIG.CENTER_X);
+
+    // Sphere: circle + meridian ellipse
+    drawGlowCircle(gfx, cx, cy, r, color);
+    drawGlowEllipse(gfx, cx, cy, r * 0.3, r, color, va);
+
+    // Spikes radiating outward from the sphere surface
+    const NUM_SPIKES = 8;
+    const spikeLen = size * 0.3;
+    for (let i = 0; i < NUM_SPIKES; i++) {
+      const angle = (i / NUM_SPIKES) * Math.PI * 2;
+      const sx = cx + Math.cos(angle) * r;
+      const sy = cy + Math.sin(angle) * r;
+      const tx = cx + Math.cos(angle) * (r + spikeLen);
+      const ty = cy + Math.sin(angle) * (r + spikeLen);
+      drawGlowLine(gfx, sx, sy, tx, ty, color);
+    }
+  }
+
+  _drawHeart(gfx, cx, cy, size, color) {
+    // Heart shape laying flat like the hockey puck
+    const dx = CONFIG.CENTER_X - cx;
+    const dy = CONFIG.CENTER_Y - cy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const nx = dx / dist;  // toward center
+    const ny = dy / dist;
+    const px = -ny;  // perpendicular (along face edge)
+    const py = nx;
+
+    const r = size * 0.5;
+    const tilt = 0.35;  // foreshortening
+    const thickness = size * 0.15;
+
+    // Build heart shape points in local 2D (u = perpendicular, v = toward/away center)
+    // then project with foreshortening on the v-axis
+    const numPts = 32;
+    const pts = [];
+    for (let i = 0; i < numPts; i++) {
+      const t = (i / numPts) * Math.PI * 2;
+      // Heart parametric: x = 16 sin^3(t), y = 13cos(t) - 5cos(2t) - 2cos(3t) - cos(4t)
+      const u = Math.pow(Math.sin(t), 3);
+      const v = (13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)) / 16;
+      pts.push({ u: u * r, v: v * r * tilt });
+    }
+
+    // Draw front and back face + connecting sides
+    const ox = cx - nx * thickness * 0.5;
+    const oy = cy - ny * thickness * 0.5;
+    const ix = cx + nx * thickness * 0.5;
+    const iy = cy + ny * thickness * 0.5;
+
+    // Draw outline for both faces
+    for (const center of [{ x: ox, y: oy }, { x: ix, y: iy }]) {
+      for (let i = 0; i < numPts; i++) {
+        const a = pts[i];
+        const b = pts[(i + 1) % numPts];
+        const x1 = center.x + px * a.u + nx * a.v;
+        const y1 = center.y + py * a.u + ny * a.v;
+        const x2 = center.x + px * b.u + nx * b.v;
+        const y2 = center.y + py * b.u + ny * b.v;
+        drawGlowLine(gfx, x1, y1, x2, y2, color);
+      }
+    }
+
+    // Side connecting lines at widest points (left, right, bottom tip)
+    const widest = Math.round(numPts * 0.25);  // ~quarter turn = widest left
+    const widest2 = Math.round(numPts * 0.75); // widest right
+    const bottom = Math.round(numPts * 0.5);   // bottom tip
+    for (const idx of [widest, widest2, bottom]) {
+      const p = pts[idx % numPts];
+      drawGlowLine(gfx,
+        ox + px * p.u + nx * p.v, oy + py * p.u + ny * p.v,
+        ix + px * p.u + nx * p.v, iy + py * p.u + ny * p.v, color);
+    }
   }
 
   _drawShip(gfx, visualOffset, rotAngle) {

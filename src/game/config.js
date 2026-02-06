@@ -19,13 +19,6 @@ export const CONFIG = Object.freeze({
   CENTER_X: 384,
   CENTER_Y: 381,
 
-  SPAWN_RAMP: [
-    [0, 4],
-    [20000, 3],
-    [45000, 2],
-    [90000, 1],
-  ],
-
   COLORS: {
     BG: 0x000000,
     TUNNEL: 0x7cffb2,
@@ -37,6 +30,8 @@ export const CONFIG = Object.freeze({
     TANK: 0x4488ff,
     TANK_DAMAGED: 0x88bbff,
     ACTIVE_LANE: 0xbbffdd,
+    BOMB: 0xffdd44,
+    HEART: 0xff4488,
   },
 
   WALL_Z_THICKNESS: 0.15,

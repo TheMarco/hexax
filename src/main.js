@@ -8,6 +8,7 @@ document.fonts.ready.then(() => {
   // Apply shader overlay after canvas is ready
   setTimeout(() => {
     const shaderOverlay = createShaderOverlay(game.canvas);
+    game.registry.set('shaderOverlay', shaderOverlay);
 
     // Wire up shader toggle buttons
     document.querySelectorAll('#shader-toggle button').forEach(btn => {

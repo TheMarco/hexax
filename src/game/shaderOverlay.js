@@ -173,6 +173,7 @@ uniform sampler2D u_texture;
 uniform sampler2D u_prevFrame;
 uniform vec2 u_resolution;
 uniform float u_time;
+uniform float u_phosphorDecay;
 
 varying vec2 v_texCoord;
 
@@ -181,7 +182,7 @@ const vec2 texel = vec2(1.0 / 768.0, 1.0 / 672.0);
 
 #define CURVATURE 0.04
 #define CORNER_RADIUS 0.08
-#define PHOSPHOR_DECAY 0.78
+#define PHOSPHOR_DECAY_DEFAULT 0.78
 
 float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 
@@ -329,7 +330,7 @@ void main() {
   // Flip Y when reading the FBO — our texcoords have v=0 at top
   // (for HTML canvas), but FBO textures have v=0 at bottom (OpenGL).
   vec3 prev = texture2D(u_prevFrame, vec2(uv.x, 1.0 - uv.y)).rgb;
-  color = max(color, prev * PHOSPHOR_DECAY);
+  color = max(color, prev * u_phosphorDecay);
 
   gl_FragColor = vec4(clamp(color, 0.0, 1.0), 1.0);
 }
@@ -414,6 +415,8 @@ export function createShaderOverlay(gameCanvas) {
   // Cached uniform locations for vector's phosphor persistence
   const vectorUPrevFrame = gl.getUniformLocation(programs.vector.program, 'u_prevFrame');
   const vectorUTexture = gl.getUniformLocation(programs.vector.program, 'u_texture');
+  const vectorUPhosphorDecay = gl.getUniformLocation(programs.vector.program, 'u_phosphorDecay');
+  let currentPhosphorDecay = 0.78;
 
   // ── Framebuffer objects for phosphor persistence (ping-pong) ──
   let fboA = null, fboB = null;
@@ -518,6 +521,7 @@ export function createShaderOverlay(gameCanvas) {
 
       gl.uniform2f(programs.vector.uResolution, overlay.width, overlay.height);
       gl.uniform1f(programs.vector.uTime, performance.now() / 1000);
+      gl.uniform1f(vectorUPhosphorDecay, currentPhosphorDecay);
 
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
@@ -554,6 +558,9 @@ export function createShaderOverlay(gameCanvas) {
     overlay,
     setShader(name) {
       if (programs[name]) activateProgram(programs[name]);
+    },
+    setPhosphorDecay(value) {
+      currentPhosphorDecay = value;
     },
   };
 }

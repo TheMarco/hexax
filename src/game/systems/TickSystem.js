@@ -7,16 +7,20 @@ export class TickSystem {
     this.entityManager = entityManager;
     this.collisionSystem = collisionSystem;
     this.spawnSystem = spawnSystem;
-    this.onEnemyMove = null; // callback(depthSet) after entities move
-    this.onGameOver = null;  // callback() when player dies
+    this.onEnemyMove = null;    // callback(depthSet) after entities move
+    this.onGameOver = null;     // callback() when player dies
+    this.onPlayerHit = null;    // callback(lane, color) when player takes damage
+    this.onWallHit = null;      // callback(tier) when wall hits player (1, 2, or 3)
 
     // Slow timer: enemies move, spawn, game-over check
+    // Delay adjusts dynamically each tick via getTickMs()
     this.enemyTimer = scene.time.addEvent({
       delay: CONFIG.TICK_MS,
       callback: this._onEnemyTick,
       callbackScope: this,
       loop: true,
     });
+    this._currentTickMs = CONFIG.TICK_MS;
 
     // Fast timer: bullets move 1 segment per interval
     this.bulletTimer = scene.time.addEvent({
@@ -63,28 +67,42 @@ export class TickSystem {
     // Collisions (player can shoot enemies that just reached depth 0)
     this.collisionSystem.resolve();
 
-    // Remove dead enemies immediately so game-over check doesn't see them
+    // Remove dead enemies immediately so damage check doesn't see them
     this.entityManager.removeDeadEnemies();
 
-    // Game-over checks — enemy went past player depth (depth < 0)
+    // Damage checks — enemies that reached the player
     for (const enemy of this.entityManager.enemies) {
       if (enemy.alive && enemy.depth < 0) {
-        this.state.gameOver = true;
-        if (this.onGameOver) this.onGameOver();
-        return;
+        let dmg = 10;
+        let color = CONFIG.COLORS.ENEMY;
+        if (enemy.type === 'tank') { dmg = enemy.hp >= 2 ? 20 : 10; color = CONFIG.COLORS.TANK; }
+        else if (enemy.type === 'bomb') { dmg = 20; color = CONFIG.COLORS.BOMB; }
+        else if (enemy.type === 'heart') { color = CONFIG.COLORS.HEART; }
+        enemy.kill();
+        if (this.onPlayerHit) this.onPlayerHit(enemy.lane, color);
+        if (this.state.takeDamage(dmg)) {
+          if (this.onGameOver) this.onGameOver();
+          return;
+        }
       }
     }
 
+    // Wall escalation — 3-tier system
     for (const wall of this.entityManager.walls) {
       if (wall.alive && wall.depth < 0) {
         const renderLane = this.state.getRenderLane(wall.lane);
         if (renderLane === 0) {
-          this.state.gameOver = true;
-          if (this.onGameOver) this.onGameOver();
-          return;
+          wall.kill();
+          const result = this.state.takeWallHit();
+          if (this.onPlayerHit) this.onPlayerHit(wall.lane, CONFIG.COLORS.TUNNEL);
+          if (this.onWallHit) this.onWallHit(result.tier);
+          if (result.fatal) {
+            if (this.onGameOver) this.onGameOver();
+            return;
+          }
+        } else {
+          wall.kill();
         }
-        // Dodged — remove it
-        wall.kill();
       }
     }
 
@@ -93,12 +111,17 @@ export class TickSystem {
         const renderLane1 = this.state.getRenderLane(dw.lane);
         const renderLane2 = this.state.getRenderLane(dw.lane2);
         if (renderLane1 === 0 || renderLane2 === 0) {
-          this.state.gameOver = true;
-          if (this.onGameOver) this.onGameOver();
-          return;
+          dw.kill();
+          const result = this.state.takeWallHit();
+          if (this.onPlayerHit) this.onPlayerHit(dw.lane, CONFIG.COLORS.TUNNEL);
+          if (this.onWallHit) this.onWallHit(result.tier);
+          if (result.fatal) {
+            if (this.onGameOver) this.onGameOver();
+            return;
+          }
+        } else {
+          dw.kill();
         }
-        // Dodged — remove it
-        dw.kill();
       }
     }
 
@@ -107,7 +130,14 @@ export class TickSystem {
 
     // Counters
     this.state.tickCount++;
-    this.state.elapsedMs += CONFIG.TICK_MS;
+    this.state.elapsedMs += this._currentTickMs;
+
+    // Gradually speed up enemy tick rate
+    const newTickMs = Math.round(this.state.getTickMs());
+    if (newTickMs !== this._currentTickMs) {
+      this._currentTickMs = newTickMs;
+      this.enemyTimer.delay = newTickMs;
+    }
   }
 
   _onBulletTick() {

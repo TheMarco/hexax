@@ -18,19 +18,43 @@ export class CollisionSystem {
         if (bulletDepth === enemy.depth && bullet.lane === enemy.lane) {
           bullet.kill();
 
-          if (enemy.type === 'tank') {
+          // Distance bonus: +50% score for kills at depth >= 4 (far away)
+          const distBonus = enemy.depth >= 4 ? 1.5 : 1.0;
+
+          if (enemy.type === 'heart') {
+            enemy.kill();
+            this.state.health = 100;
+            if (this.onHit) this.onHit(enemy.lane, enemy.depth, enemy.prevDepth, CONFIG.COLORS.HEART);
+          } else if (enemy.type === 'bomb') {
+            // Bomb: explode it and kill ALL alive enemies
+            enemy.kill();
+            this.state.addScore(Math.round(100 * distBonus));
+            if (this.onHit) this.onHit(enemy.lane, enemy.depth, enemy.prevDepth, CONFIG.COLORS.BOMB);
+
+            for (const e of enemies) {
+              if (!e.alive || e === enemy) continue;
+              const color = e.type === 'tank' ? CONFIG.COLORS.TANK : e.type === 'bomb' ? CONFIG.COLORS.BOMB : e.type === 'heart' ? CONFIG.COLORS.HEART : CONFIG.COLORS.ENEMY;
+              e.kill();
+              this.state.addScore(100);
+              if (this.onHit) this.onHit(e.lane, e.depth, e.prevDepth, color);
+            }
+            // Bump multiplier for chain kills
+            this.state.scoreMultiplier = Math.min(this.state.scoreMultiplier + 0.5, 4);
+          } else if (enemy.type === 'tank') {
             const dead = enemy.hit();
             if (dead) {
-              this.state.score += 200;
+              this.state.addScore(Math.round(200 * distBonus));
               if (this.onHit) this.onHit(enemy.lane, enemy.depth, enemy.prevDepth, CONFIG.COLORS.TANK);
             } else {
-              this.state.score += 50;
+              this.state.addScore(Math.round(50 * distBonus));
               if (this.onHit) this.onHit(enemy.lane, enemy.depth, enemy.prevDepth, CONFIG.COLORS.TANK);
             }
           } else {
             enemy.kill();
-            this.state.score += 100;
+            this.state.addScore(Math.round(100 * distBonus));
             if (this.onHit) this.onHit(enemy.lane, enemy.depth, enemy.prevDepth, CONFIG.COLORS.ENEMY);
+            // Increment multiplier on consecutive kills
+            this.state.scoreMultiplier = Math.min(this.state.scoreMultiplier + 0.1, 4);
           }
           break;
         }
