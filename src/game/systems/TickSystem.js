@@ -41,7 +41,7 @@ export class TickSystem {
     // Spawn before movement so new entities move immediately
     this.spawnSystem.maybeSpawn();
 
-    // Move enemies and walls (skip dying spirals — they're frozen mid-animation)
+    // Move enemies and walls (skip dying spirals — pendingKill enemies keep ticking for smooth visuals)
     for (const e of this.entityManager.enemies) {
       if (e.alive && !e.dying) e.tick();
     }
@@ -69,14 +69,16 @@ export class TickSystem {
     }
 
     // Collisions (player can shoot enemies that just reached depth 0)
-    this.collisionSystem.resolve();
+    // Enemy timer just fired: enemyLerp = 0 (entities just moved to new positions)
+    // bulletLerp = wherever the bullet timer is in its cycle
+    this.collisionSystem.resolve(this.bulletTimer.getProgress(), 0);
 
     // Remove dead enemies immediately so damage check doesn't see them
     this.entityManager.removeDeadEnemies();
 
-    // Damage checks — enemies that reached the player
+    // Damage checks — enemies that reached the player (skip pendingKill — already scored)
     for (const enemy of this.entityManager.enemies) {
-      if (enemy.alive && !enemy.dying && enemy.depth < 0) {
+      if (enemy.alive && !enemy.dying && !enemy.pendingKill && enemy.depth < 0) {
         let dmg = 10;
         let color = CONFIG.COLORS.ENEMY;
         if (enemy.type === 'tank') { dmg = enemy.hp >= 2 ? 20 : 10; color = CONFIG.COLORS.TANK; }
@@ -161,8 +163,12 @@ export class TickSystem {
     // Only clean bullets here — enemies/walls cleaned on their own timer
     this.entityManager.removeDeadBullets();
 
+    // enemyLerp is wherever the enemy timer is in its cycle
+    const enemyLerp = this.enemyTimer.getProgress();
+
     // Check collisions BEFORE moving (catch enemies at depth 0 where bullet spawned)
-    this.collisionSystem.resolve();
+    // Bullet timer just fired: bullet was visually at its current depth (lerp=1.0)
+    this.collisionSystem.resolve(1.0, enemyLerp);
     this.entityManager.removeDeadEnemies();
 
     // Move bullets
@@ -171,7 +177,8 @@ export class TickSystem {
     }
 
     // Check collisions AFTER moving (bullet may have moved into an enemy)
-    this.collisionSystem.resolve();
+    // Bullet just moved: visual starts at prevDepth (lerp=0.0)
+    this.collisionSystem.resolve(0.0, enemyLerp);
 
     // Remove dead enemies immediately so they vanish on hit (explosion already spawned)
     this.entityManager.removeDeadEnemies();

@@ -13,6 +13,66 @@ const WALL_COLOR = (() => {
 export class EntityRenderer {
   constructor(geometry) {
     this.geometry = geometry;
+    this.deflectEffects = [];
+    this.ghostBullets = []; // { lane, depth } — deferred collision ghost bullets
+  }
+
+  _makeEdgeBolts(numBolts) {
+    // Lightning bolts that zigzag along a face edge with perpendicular offsets
+    const bolts = [];
+    for (let i = 0; i < numBolts; i++) {
+      const numSegs = 4 + Math.floor(Math.random() * 3);
+      const baseOffset = (Math.random() - 0.5) * 0.3;
+      const points = [];
+      for (let j = 0; j <= numSegs; j++) {
+        points.push({ t: j / numSegs, offset: baseOffset + (Math.random() - 0.5) * 0.8 });
+      }
+      bolts.push(points);
+    }
+    return bolts;
+  }
+
+  _makeRadialBolts(numBolts) {
+    // Lightning bolts radiating outward from center (for phase shield)
+    const bolts = [];
+    for (let i = 0; i < numBolts; i++) {
+      const angle = (i / numBolts) * Math.PI * 2 + (Math.random() - 0.5) * 0.6;
+      const numSegs = 2 + Math.floor(Math.random() * 2);
+      const points = [];
+      for (let j = 0; j <= numSegs; j++) {
+        const frac = j / numSegs;
+        const jitterAngle = angle + (Math.random() - 0.5) * 0.8 * frac;
+        points.push({ dist: 0.15 + frac * 0.85, angle: jitterAngle });
+      }
+      bolts.push(points);
+    }
+    return bolts;
+  }
+
+  spawnDeflect(type, lane, depth, prevDepth, lane2) {
+    if (type === 'doublewall') {
+      // Two sets of bolts — one per face segment
+      this.deflectEffects.push({
+        type, lane, depth, prevDepth, lane2,
+        elapsed: 0, lifetime: 350,
+        boltsA: this._makeEdgeBolts(4 + Math.floor(Math.random() * 2)),
+        boltsB: this._makeEdgeBolts(4 + Math.floor(Math.random() * 2)),
+      });
+    } else if (type === 'phase') {
+      // Radial burst from enemy center
+      this.deflectEffects.push({
+        type, lane, depth, prevDepth,
+        elapsed: 0, lifetime: 300,
+        bolts: this._makeRadialBolts(8 + Math.floor(Math.random() * 4)),
+      });
+    } else {
+      // Single wall — bolts along one face edge
+      this.deflectEffects.push({
+        type, lane, depth, prevDepth,
+        elapsed: 0, lifetime: 350,
+        bolts: this._makeEdgeBolts(5 + Math.floor(Math.random() * 3)),
+      });
+    }
   }
 
   draw(gfx, state, entityManager, visualOffset, rotAngle = 0, bulletLerp = 0, enemyLerp = 0, dt = 0) {
@@ -68,15 +128,14 @@ export class EntityRenderer {
 
     // Bullets: smooth interpolated positions
     for (const bullet of entityManager.bullets) {
+      // Don't render dead bullets that hit something — explosion/lightning covers it
+      if (!bullet.alive && bullet.hitDepth !== undefined) continue;
+      if (!bullet.alive) continue;
+
       const renderLane = state.getRenderLane(bullet.lane);
       const visualLane = (renderLane + visualOffset) % CONFIG.NUM_LANES;
 
-      let visualDepth;
-      if (!bullet.alive) {
-        visualDepth = bullet.depth;
-      } else {
-        visualDepth = bullet.prevDepth + (bullet.depth - bullet.prevDepth) * bulletLerp;
-      }
+      const visualDepth = bullet.prevDepth + (bullet.depth - bullet.prevDepth) * bulletLerp;
 
       if (visualDepth >= 0 && visualDepth <= CONFIG.MAX_DEPTH) {
         const pos = this.geometry.getMidpointLerp(visualDepth, visualLane, rotAngle);
@@ -84,6 +143,20 @@ export class EntityRenderer {
           const scale = this.geometry.getScaleLerp(visualDepth);
           const size = 6 * scale;
           drawGlowDiamond(gfx, pos.x, pos.y, Math.max(size, 2), CONFIG.COLORS.BULLET);
+        }
+      }
+    }
+
+    // Ghost bullets (deferred collision — bullet visually advancing to target)
+    for (const gb of this.ghostBullets) {
+      const gbRenderLane = state.getRenderLane(gb.lane);
+      const gbVisualLane = (gbRenderLane + visualOffset) % CONFIG.NUM_LANES;
+      if (gb.depth >= 0 && gb.depth <= CONFIG.MAX_DEPTH) {
+        const gbPos = this.geometry.getMidpointLerp(gb.depth, gbVisualLane, rotAngle);
+        if (gbPos) {
+          const gbScale = this.geometry.getScaleLerp(gb.depth);
+          const gbSize = 6 * gbScale;
+          drawGlowDiamond(gfx, gbPos.x, gbPos.y, Math.max(gbSize, 2), CONFIG.COLORS.BULLET);
         }
       }
     }
@@ -124,6 +197,13 @@ export class EntityRenderer {
         dw.hitFlash = Math.max(0, dw.hitFlash - dt * 4);
       }
     }
+
+    // Wall deflect lightning effects
+    for (const effect of this.deflectEffects) {
+      this._drawDeflectEffect(gfx, effect, visualOffset, rotAngle, state, enemyLerp);
+      effect.elapsed += dt * 1000;
+    }
+    this.deflectEffects = this.deflectEffects.filter(e => e.elapsed < e.lifetime);
   }
 
   _wallPerp(v1, v2, height) {
@@ -490,6 +570,146 @@ export class EntityRenderer {
 
     // Front disc face (dashed ellipse)
     drawGlowDashedEllipse(gfx, ox, oy, r, r * tilt, color, rotation);
+  }
+
+  _deflectColor(lifeRatio) {
+    const i = lifeRatio * lifeRatio;
+    const r = Math.min(255, Math.floor(200 * i + 55 * i * i));
+    const g = Math.min(255, Math.floor(230 * i + 25 * i * i));
+    const b = Math.min(255, Math.floor(255 * i));
+    return (r << 16) | (g << 8) | b;
+  }
+
+  _drawEdgeBolts(gfx, bolts, v1, v2, perp, lifeRatio, color) {
+    for (const bolt of bolts) {
+      for (let j = 0; j < bolt.length - 1; j++) {
+        const a = bolt[j];
+        const b = bolt[j + 1];
+        const jitter = (Math.random() - 0.5) * 0.12 * lifeRatio;
+        const ax = v1.x + (v2.x - v1.x) * a.t + perp.x * (a.offset + jitter);
+        const ay = v1.y + (v2.y - v1.y) * a.t + perp.y * (a.offset + jitter);
+        const bx = v1.x + (v2.x - v1.x) * b.t + perp.x * (b.offset + jitter);
+        const by = v1.y + (v2.y - v1.y) * b.t + perp.y * (b.offset + jitter);
+        drawGlowLine(gfx, ax, ay, bx, by, color);
+      }
+    }
+  }
+
+  _drawDeflectEffect(gfx, effect, visualOffset, rotAngle, state, enemyLerp) {
+    const lifeRatio = 1.0 - effect.elapsed / effect.lifetime;
+    if (lifeRatio <= 0) return;
+
+    const visualDepth = effect.prevDepth + (effect.depth - effect.prevDepth) * enemyLerp;
+    if (visualDepth < 0 || visualDepth > CONFIG.MAX_DEPTH) return;
+
+    const color = this._deflectColor(lifeRatio);
+
+    if (effect.type === 'phase') {
+      this._drawPhaseDeflect(gfx, effect, visualOffset, rotAngle, state, visualDepth, lifeRatio, color);
+    } else if (effect.type === 'doublewall') {
+      this._drawDoubleWallDeflect(gfx, effect, visualOffset, rotAngle, state, visualDepth, lifeRatio, color);
+    } else {
+      this._drawWallDeflect(gfx, effect, visualOffset, rotAngle, state, visualDepth, lifeRatio, color);
+    }
+  }
+
+  // Single wall: lightning along the face edge with perpendicular offsets
+  _drawWallDeflect(gfx, effect, visualOffset, rotAngle, state, visualDepth, lifeRatio, color) {
+    const renderLane = state.getRenderLane(effect.lane);
+    const visualLane = (renderLane + visualOffset) % CONFIG.NUM_LANES;
+    const nextVertex = (visualLane + 1) % CONFIG.NUM_LANES;
+
+    const v1 = this.geometry.getVertexLerp(visualDepth, visualLane, rotAngle);
+    const v2 = this.geometry.getVertexLerp(visualDepth, nextVertex, rotAngle);
+    if (!v1 || !v2) return;
+
+    const scale = this.geometry.getScaleLerp(visualDepth);
+    const perpHeight = CONFIG.WALL_HEIGHT * scale * 0.8;
+    const perp = this._wallPerp(v1, v2, perpHeight);
+
+    this._drawEdgeBolts(gfx, effect.bolts, v1, v2, perp, lifeRatio, color);
+
+    // Impact flash at center
+    if (lifeRatio > 0.55) {
+      const fi = (lifeRatio - 0.55) / 0.45;
+      const cx = (v1.x + v2.x) / 2;
+      const cy = (v1.y + v2.y) / 2;
+      const flashR = perpHeight * 0.35 * fi;
+      if (flashR > 1) drawGlowCircle(gfx, cx, cy, flashR, 0xffffff);
+    }
+  }
+
+  // Double wall: two sets of bolts, one per face segment, following each angled edge
+  _drawDoubleWallDeflect(gfx, effect, visualOffset, rotAngle, state, visualDepth, lifeRatio, color) {
+    const renderLane1 = state.getRenderLane(effect.lane);
+    const visualLane1 = (renderLane1 + visualOffset) % CONFIG.NUM_LANES;
+    const renderLane2 = state.getRenderLane(effect.lane2);
+    const visualLane2 = (renderLane2 + visualOffset) % CONFIG.NUM_LANES;
+    const midVertex = (visualLane1 + 1) % CONFIG.NUM_LANES;
+    const endVertex = (visualLane2 + 1) % CONFIG.NUM_LANES;
+
+    const vStart = this.geometry.getVertexLerp(visualDepth, visualLane1, rotAngle);
+    const vMid = this.geometry.getVertexLerp(visualDepth, midVertex, rotAngle);
+    const vEnd = this.geometry.getVertexLerp(visualDepth, endVertex, rotAngle);
+    if (!vStart || !vMid || !vEnd) return;
+
+    const scale = this.geometry.getScaleLerp(visualDepth);
+    const perpHeight = CONFIG.WALL_HEIGHT * scale * 0.8;
+
+    // Face A: start → mid
+    const perpA = this._wallPerp(vStart, vMid, perpHeight);
+    this._drawEdgeBolts(gfx, effect.boltsA, vStart, vMid, perpA, lifeRatio, color);
+
+    // Face B: mid → end
+    const perpB = this._wallPerp(vMid, vEnd, perpHeight);
+    this._drawEdgeBolts(gfx, effect.boltsB, vMid, vEnd, perpB, lifeRatio, color);
+
+    // Impact flash at the shared mid vertex
+    if (lifeRatio > 0.55) {
+      const fi = (lifeRatio - 0.55) / 0.45;
+      const flashR = perpHeight * 0.35 * fi;
+      if (flashR > 1) drawGlowCircle(gfx, vMid.x, vMid.y, flashR, 0xffffff);
+    }
+  }
+
+  // Phase shield: radial burst of short lightning bolts from the enemy center
+  _drawPhaseDeflect(gfx, effect, visualOffset, rotAngle, state, visualDepth, lifeRatio, color) {
+    const renderLane = state.getRenderLane(effect.lane);
+    const visualLane = (renderLane + visualOffset) % CONFIG.NUM_LANES;
+
+    const pos = this.geometry.getMidpointLerp(visualDepth, visualLane, rotAngle);
+    if (!pos) return;
+
+    const scale = this.geometry.getScaleLerp(visualDepth);
+    const radius = 137 * scale * 0.55; // slightly larger than the puck
+
+    // Purple-tinted lightning for phase shield
+    const pi = lifeRatio * lifeRatio;
+    const pr = Math.min(255, Math.floor(200 * pi + 55 * pi));
+    const pg = Math.min(255, Math.floor(140 * pi));
+    const pb = Math.min(255, Math.floor(255 * pi));
+    const phaseColor = (pr << 16) | (pg << 8) | pb;
+
+    // Draw radial bolts
+    for (const bolt of effect.bolts) {
+      for (let j = 0; j < bolt.length - 1; j++) {
+        const a = bolt[j];
+        const b = bolt[j + 1];
+        const jitter = (Math.random() - 0.5) * 0.15 * lifeRatio;
+        const ax = pos.x + Math.cos(a.angle + jitter) * radius * a.dist;
+        const ay = pos.y + Math.sin(a.angle + jitter) * radius * a.dist;
+        const bx = pos.x + Math.cos(b.angle + jitter) * radius * b.dist;
+        const by = pos.y + Math.sin(b.angle + jitter) * radius * b.dist;
+        drawGlowLine(gfx, ax, ay, bx, by, phaseColor);
+      }
+    }
+
+    // Shield ring flash
+    if (lifeRatio > 0.4) {
+      const fi = (lifeRatio - 0.4) / 0.6;
+      const ringR = radius * (0.7 + 0.3 * fi);
+      drawGlowCircle(gfx, pos.x, pos.y, ringR, phaseColor);
+    }
   }
 
   _drawShip(gfx, visualOffset, rotAngle) {

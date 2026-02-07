@@ -38,11 +38,13 @@ document.fonts.ready.then(() => {
     const shaderOverlay = createShaderOverlay(game.canvas);
     game.registry.set('shaderOverlay', shaderOverlay);
 
-    // Desktop: wire up shader toggle buttons
+    // Desktop: wire up shader toggle buttons and set initial active state
     if (!isTouchDevice) {
+      const currentName = shaderOverlay.getShaderName();
       document.querySelectorAll('#shader-toggle button').forEach(btn => {
+        if (btn.dataset.shader === currentName) btn.classList.add('active');
         btn.addEventListener('click', () => {
-          document.querySelector('#shader-toggle .active').classList.remove('active');
+          document.querySelector('#shader-toggle .active')?.classList.remove('active');
           btn.classList.add('active');
           shaderOverlay.setShader(btn.dataset.shader);
         });
@@ -69,7 +71,7 @@ document.fonts.ready.then(() => {
       });
 
       // Display mode: toggle between CRT and Vector
-      let currentShader = 'crt';
+      let currentShader = shaderOverlay.getShaderName();
       document.getElementById('touch-display').addEventListener('touchstart', (e) => {
         e.preventDefault();
         currentShader = currentShader === 'crt' ? 'vector' : 'crt';

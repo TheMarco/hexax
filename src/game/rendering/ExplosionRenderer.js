@@ -2,16 +2,19 @@ import { CONFIG } from '../config.js';
 
 const PARTICLE_COUNT = 12; // fewer, chunkier pieces like Vectrex
 const PARTICLE_SPEED = 200; // moderate speed
-const PARTICLE_LIFE_MS = 2200; // very long persistence
+const PARTICLE_LIFE_MS = 1200; // snappy lifetime
 const TAIL_LENGTH = 50; // long vector streaks
-const FADE_START = 0.85; // stay full brightness until 85% of lifetime, then snap off
 
 // Match tunnel line thickness for visibility
 const LINE_WIDTH = 2.5;
 
+const CX = CONFIG.CENTER_X;
+const CY = CONFIG.CENTER_Y;
+
 export class ExplosionRenderer {
   constructor() {
     this.explosions = []; // array of { particles: [...], elapsed: 0 }
+    this._prevAngle = 0;
   }
 
   spawn(x, y, color) {
@@ -37,8 +40,30 @@ export class ExplosionRenderer {
     this.explosions.push({ particles, elapsed: 0 });
   }
 
-  update(delta) {
+  update(delta, rotAngle) {
     const dt = delta / 1000;
+
+    // Rotate all particles around tunnel center when the angle changes
+    const dAngle = rotAngle - this._prevAngle;
+    this._prevAngle = rotAngle;
+    if (dAngle !== 0) {
+      const cos = Math.cos(dAngle);
+      const sin = Math.sin(dAngle);
+      for (const exp of this.explosions) {
+        for (const p of exp.particles) {
+          // Rotate position
+          const dx = p.x - CX;
+          const dy = p.y - CY;
+          p.x = CX + dx * cos - dy * sin;
+          p.y = CY + dx * sin + dy * cos;
+          // Rotate velocity
+          const vx = p.vx;
+          p.vx = vx * cos - p.vy * sin;
+          p.vy = vx * sin + p.vy * cos;
+        }
+      }
+    }
+
     for (const exp of this.explosions) {
       exp.elapsed += delta;
       for (const p of exp.particles) {
@@ -58,11 +83,8 @@ export class ExplosionRenderer {
       const lifeRatio = 1 - exp.elapsed / PARTICLE_LIFE_MS;
       if (lifeRatio <= 0) continue;
 
-      // Stay full brightness until FADE_START, then quick fade/snap off
-      let alpha = 1.0;
-      if (lifeRatio < (1 - FADE_START)) {
-        alpha = lifeRatio / (1 - FADE_START);
-      }
+      // Exponential fade — bright at start, accelerating decay toward end
+      const alpha = lifeRatio * lifeRatio;
 
       for (const p of exp.particles) {
         // Draw as a sharp trailing line (pure vector streak, no glow)

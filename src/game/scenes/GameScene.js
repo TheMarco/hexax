@@ -35,18 +35,17 @@ export class GameScene extends Phaser.Scene {
     this.explosionRenderer = new ExplosionRenderer();
     this.tunnelExplosion = new TunnelExplosionRenderer(this.geometry);
     this.collisionSystem = new CollisionSystem(this.entityManager, this.state);
-    this.collisionSystem.onWallDeflect = () => {
+    this.collisionSystem.onWallDeflect = (type, lane, depth, prevDepth, lane2) => {
       this.soundEngine.playHitWall();
+      this.entityRenderer.spawnDeflect(type, lane, depth, prevDepth, lane2);
     };
     this.collisionSystem.onHeartCollect = () => {
       this.soundEngine.playHeart();
     };
-    this.collisionSystem.onHit = (lane, depth, prevDepth, color) => {
+    this.collisionSystem.onHit = (lane, visualDepth, color) => {
       const VISUAL_OFFSET = 2;
       const renderLane = this.state.getRenderLane(lane);
       const visualLane = (renderLane + VISUAL_OFFSET) % CONFIG.NUM_LANES;
-      const enemyLerp = this.tickSystem.enemyTimer.getProgress();
-      const visualDepth = prevDepth + (depth - prevDepth) * enemyLerp;
       const pos = this.geometry.getMidpointLerp(visualDepth, visualLane, this._rotAngle);
       if (!pos) return;
 
@@ -121,6 +120,7 @@ export class GameScene extends Phaser.Scene {
     this._rotElapsed = 0;     // ms elapsed since rotation started
     this._rotActive = false;  // animation in progress
     this._rotDir = 0;         // +1 or -1
+    this._cumulativeRot = 0;  // cumulative rotation (never resets) for explosions
 
     // Wobble state (wall hit shake)
     this._wobbleActive = false;
@@ -163,6 +163,7 @@ export class GameScene extends Phaser.Scene {
 
       if (t >= 1) {
         // Done — apply rotation and reset
+        this._cumulativeRot += this._rotTarget;
         this._rotAngle = 0;
         this._rotActive = false;
         if (this._rotDir === 1) {
@@ -206,6 +207,53 @@ export class GameScene extends Phaser.Scene {
     const bulletLerp = this.tickSystem.bulletTimer.getProgress();
     const enemyLerp = this.tickSystem.enemyTimer.getProgress();
 
+    // Process deferred collision visuals (ghost bullet → enemy → explosion)
+    const GHOST_BULLET_SPEED = 10; // segments per second
+    const PENDING_TIMEOUT = 300;   // ms max before forcing resolution
+    const pendingKills = this.collisionSystem.pendingKills;
+    for (let i = pendingKills.length - 1; i >= 0; i--) {
+      const pk = pendingKills[i];
+      pk.elapsed += delta;
+
+      // Advance ghost bullet toward target
+      pk.ghostDepth += GHOST_BULLET_SPEED * (delta / 1000);
+
+      // Enemy's current visual depth (enemy keeps ticking/moving naturally)
+      const enemyVisualDepth = pk.enemy.alive
+        ? pk.enemy.prevDepth + (pk.enemy.depth - pk.enemy.prevDepth) * enemyLerp
+        : pk.ghostDepth; // if chain-killed, resolve immediately
+
+      // Resolve when ghost reaches enemy, times out, or enemy was chain-killed
+      if (pk.ghostDepth >= enemyVisualDepth || pk.elapsed > PENDING_TIMEOUT || !pk.enemy.alive) {
+        if (pk.enemy.alive) {
+          const renderLane = this.state.getRenderLane(pk.lane);
+          const visualLane = (renderLane + VISUAL_OFFSET) % CONFIG.NUM_LANES;
+          const meetDepth = Math.min(pk.ghostDepth, enemyVisualDepth);
+          const pos = this.geometry.getMidpointLerp(meetDepth, visualLane, effectiveRotAngle);
+          if (pos) {
+            this.explosionRenderer.spawn(pos.x, pos.y, pk.color);
+            this.soundEngine.playExplosion();
+          }
+          pk.enemy.kill();
+        }
+        pendingKills.splice(i, 1);
+      }
+    }
+
+    // Clear pending kills on game over
+    if (this.state.gameOver && pendingKills.length > 0) {
+      for (const pk of pendingKills) {
+        if (pk.enemy.alive) pk.enemy.kill();
+      }
+      pendingKills.length = 0;
+    }
+
+    // Pass ghost bullet positions to renderer
+    this.entityRenderer.ghostBullets = pendingKills.map(pk => ({
+      lane: pk.lane,
+      depth: pk.ghostDepth,
+    }));
+
     // Resolve dying spirals once their lane animation has completed
     const laneLerp = Math.min(1, enemyLerp * CONFIG.SPIRAL_LANE_SPEED);
     if (laneLerp >= 1) {
@@ -223,7 +271,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    this.explosionRenderer.update(delta);
+    this.explosionRenderer.update(delta, this._cumulativeRot + this._rotAngle);
     this.tunnelExplosion.update(delta);
 
     // Only draw tunnel/entities if not game over

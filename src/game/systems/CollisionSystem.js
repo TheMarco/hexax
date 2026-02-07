@@ -4,12 +4,13 @@ export class CollisionSystem {
   constructor(entityManager, state) {
     this.entityManager = entityManager;
     this.state = state;
-    this.onHit = null; // callback(lane, depth, prevDepth, color) when a hit occurs
-    this.onWallDeflect = null; // callback() when bullet hits a wall
+    this.onHit = null; // callback(lane, visualDepth, color) when a hit occurs (instant kills)
+    this.onWallDeflect = null; // callback(type, lane, depth, prevDepth, lane2) when bullet hits a wall
     this.onHeartCollect = null; // callback() when bullet hits a heart
+    this.pendingKills = []; // deferred visual kills: ghost bullet advances to enemy, then explosion
   }
 
-  resolve() {
+  resolve(bulletLerp = 0, enemyLerp = 0) {
     const { bullets, enemies, walls, doublewalls } = this.entityManager;
 
     for (const bullet of bullets) {
@@ -22,8 +23,10 @@ export class CollisionSystem {
         if (!wall.alive) continue;
         if (bulletDepth === wall.depth && bullet.lane === wall.lane) {
           bullet.kill();
+          bullet.hitDepth = wall.depth;
+          bullet.hitPrevDepth = wall.prevDepth;
           wall.hitFlash = 1.0;
-          if (this.onWallDeflect) this.onWallDeflect();
+          if (this.onWallDeflect) this.onWallDeflect('wall', wall.lane, wall.depth, wall.prevDepth);
           hitWall = true;
           break;
         }
@@ -34,8 +37,10 @@ export class CollisionSystem {
         if (!dw.alive) continue;
         if (bulletDepth === dw.depth && (bullet.lane === dw.lane || bullet.lane === dw.lane2)) {
           bullet.kill();
+          bullet.hitDepth = dw.depth;
+          bullet.hitPrevDepth = dw.prevDepth;
           dw.hitFlash = 1.0;
-          if (this.onWallDeflect) this.onWallDeflect();
+          if (this.onWallDeflect) this.onWallDeflect('doublewall', dw.lane, dw.depth, dw.prevDepth, dw.lane2);
           hitWall = true;
           break;
         }
@@ -43,50 +48,73 @@ export class CollisionSystem {
       if (hitWall) continue;
 
       for (const enemy of enemies) {
-        if (!enemy.alive || enemy.dying) continue;
+        if (!enemy.alive || enemy.dying || enemy.pendingKill) continue;
         if (bulletDepth === enemy.depth && bullet.lane === enemy.lane) {
-          // Phase enemy in shielded state — deflect like a wall
+          // Phase enemy in shielded state — deflect like a wall (instant)
           if (enemy.type === 'phase' && enemy.phase === 'shielded') {
             bullet.kill();
+            bullet.hitDepth = enemy.depth;
+            bullet.hitPrevDepth = enemy.prevDepth;
             enemy.hitFlash = 1.0;
-            if (this.onWallDeflect) this.onWallDeflect();
+            if (this.onWallDeflect) this.onWallDeflect('phase', enemy.lane, enemy.depth, enemy.prevDepth);
             break;
           }
 
           bullet.kill();
+          bullet.hitDepth = enemy.depth;
+          bullet.hitPrevDepth = enemy.prevDepth;
 
           // Distance bonus: +50% score for kills at depth >= 4 (far away)
           const distBonus = enemy.depth >= 4 ? 1.5 : 1.0;
 
+          // Compute bullet's visual position at collision time for ghost bullet start
+          const bulletVisualDepth = bullet.prevDepth + (bullet.depth - bullet.prevDepth) * bulletLerp;
+
           if (enemy.type === 'heart') {
+            // Instant — healing needs immediate feedback
+            const enemyVisualDepth = enemy.prevDepth + (enemy.depth - enemy.prevDepth) * enemyLerp;
             enemy.kill();
             this.state.health = 100;
             this.state.repairAllSegments();
             if (this.onHeartCollect) this.onHeartCollect();
-            if (this.onHit) this.onHit(enemy.lane, enemy.depth, enemy.prevDepth, CONFIG.COLORS.HEART);
+            if (this.onHit) this.onHit(enemy.lane, enemyVisualDepth, CONFIG.COLORS.HEART);
           } else if (enemy.type === 'bomb') {
-            // Bomb: explode it and kill ALL alive enemies
+            // Instant — chain kills are a visual spectacle
+            const enemyVisualDepth = enemy.prevDepth + (enemy.depth - enemy.prevDepth) * enemyLerp;
             enemy.kill();
             this.state.addScore(Math.round(100 * distBonus));
-            if (this.onHit) this.onHit(enemy.lane, enemy.depth, enemy.prevDepth, CONFIG.COLORS.BOMB);
+            if (this.onHit) this.onHit(enemy.lane, enemyVisualDepth, CONFIG.COLORS.BOMB);
 
             for (const e of enemies) {
               if (!e.alive || e === enemy || e.dying) continue;
               const color = e.type === 'tank' ? CONFIG.COLORS.TANK : e.type === 'bomb' ? CONFIG.COLORS.BOMB : e.type === 'heart' ? CONFIG.COLORS.HEART : e.type === 'phase' ? CONFIG.COLORS.PHASE : e.type === 'spiral' ? CONFIG.COLORS.SPIRAL : CONFIG.COLORS.ENEMY;
+              const eVisual = e.prevDepth + (e.depth - e.prevDepth) * enemyLerp;
+              // Cancel any pending kill for this enemy
+              if (e.pendingKill) {
+                this.pendingKills = this.pendingKills.filter(pk => pk.enemy !== e);
+              }
               e.kill();
               this.state.addScore(100);
-              if (this.onHit) this.onHit(e.lane, e.depth, e.prevDepth, color);
+              if (this.onHit) this.onHit(e.lane, eVisual, color);
             }
             // Bump multiplier for chain kills
             this.state.scoreMultiplier = Math.min(this.state.scoreMultiplier + 0.5, 4);
           } else if (enemy.type === 'tank') {
             const dead = enemy.hit();
             if (dead) {
+              // hit() called kill() — resurrect for deferred rendering
+              enemy.alive = true;
+              enemy.pendingKill = true;
               this.state.addScore(Math.round(200 * distBonus));
-              if (this.onHit) this.onHit(enemy.lane, enemy.depth, enemy.prevDepth, CONFIG.COLORS.TANK);
+              this.pendingKills.push({
+                enemy, color: CONFIG.COLORS.TANK, lane: enemy.lane,
+                ghostDepth: bulletVisualDepth, elapsed: 0,
+              });
             } else {
+              // Tank survives — instant explosion (tank is still visible)
+              const enemyVisualDepth = enemy.prevDepth + (enemy.depth - enemy.prevDepth) * enemyLerp;
               this.state.addScore(Math.round(50 * distBonus));
-              if (this.onHit) this.onHit(enemy.lane, enemy.depth, enemy.prevDepth, CONFIG.COLORS.TANK);
+              if (this.onHit) this.onHit(enemy.lane, enemyVisualDepth, CONFIG.COLORS.TANK);
             }
             this.state.scoreMultiplier = Math.min(this.state.scoreMultiplier + 0.1, 4);
           } else if (enemy.type === 'spiral' && enemy.prevLane !== enemy.lane) {
@@ -96,12 +124,16 @@ export class CollisionSystem {
             this.state.addScore(Math.round(100 * distBonus));
             this.state.scoreMultiplier = Math.min(this.state.scoreMultiplier + 0.1, 4);
           } else {
-            enemy.kill();
-            this.state.addScore(Math.round(100 * distBonus));
+            // Regular enemy / phase vulnerable / spiral same lane — DEFERRED kill
             const hitColor = enemy.type === 'phase' ? CONFIG.COLORS.PHASE : enemy.type === 'spiral' ? CONFIG.COLORS.SPIRAL : CONFIG.COLORS.ENEMY;
-            if (this.onHit) this.onHit(enemy.lane, enemy.depth, enemy.prevDepth, hitColor);
-            // Increment multiplier on consecutive kills
+            this.state.addScore(Math.round(100 * distBonus));
             this.state.scoreMultiplier = Math.min(this.state.scoreMultiplier + 0.1, 4);
+
+            enemy.pendingKill = true;
+            this.pendingKills.push({
+              enemy, color: hitColor, lane: enemy.lane,
+              ghostDepth: bulletVisualDepth, elapsed: 0,
+            });
           }
           break;
         }
