@@ -42,14 +42,17 @@ export class GameScene extends Phaser.Scene {
     this.collisionSystem.onHeartCollect = () => {
       this.soundEngine.playHeart();
     };
-    this.collisionSystem.onHit = (lane, visualDepth, color) => {
+    this.collisionSystem.onHit = (lane, visualDepth, color, opts) => {
       const VISUAL_OFFSET = 2;
       const renderLane = this.state.getRenderLane(lane);
       const visualLane = (renderLane + VISUAL_OFFSET) % CONFIG.NUM_LANES;
       const pos = this.geometry.getMidpointLerp(visualDepth, visualLane, this._rotAngle);
       if (!pos) return;
 
-      this.explosionRenderer.spawn(pos.x, pos.y, color);
+      const ep = (opts && opts.tankSide)
+        ? this._tankBallPos(pos, visualDepth, opts.tankSide)
+        : pos;
+      this.explosionRenderer.spawn(ep.x, ep.y, color);
       this.soundEngine.playExplosion();
     };
     this.spawnSystem = new SpawnSystem(this.entityManager, this.state);
@@ -138,6 +141,23 @@ export class GameScene extends Phaser.Scene {
 
   get isRotating() {
     return this._rotActive;
+  }
+
+  _tankBallPos(pos, visualDepth, side) {
+    // Must match _drawTank's perpendicular math exactly
+    const dx = CONFIG.CENTER_X - pos.x;
+    const dy = CONFIG.CENTER_Y - pos.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    const nx = dx / dist;  // toward center
+    const ny = dy / dist;
+    const px = -ny;        // perpendicular (along face edge)
+    const py = nx;
+    const scale = this.geometry.getScaleLerp(visualDepth);
+    const spacing = 137 * scale * 0.55;
+    if (side === 'left') {
+      return { x: pos.x - px * spacing, y: pos.y - py * spacing };
+    }
+    return { x: pos.x + px * spacing, y: pos.y + py * spacing };
   }
 
   startRotAnim(direction) {
@@ -231,7 +251,10 @@ export class GameScene extends Phaser.Scene {
           const meetDepth = Math.min(pk.ghostDepth, enemyVisualDepth);
           const pos = this.geometry.getMidpointLerp(meetDepth, visualLane, effectiveRotAngle);
           if (pos) {
-            this.explosionRenderer.spawn(pos.x, pos.y, pk.color);
+            const ep = pk.tankSide
+              ? this._tankBallPos(pos, meetDepth, pk.tankSide)
+              : pos;
+            this.explosionRenderer.spawn(ep.x, ep.y, pk.color);
             this.soundEngine.playExplosion();
           }
           pk.enemy.kill();

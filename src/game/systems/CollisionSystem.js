@@ -106,15 +106,17 @@ export class CollisionSystem {
               enemy.alive = true;
               enemy.pendingKill = true;
               this.state.addScore(Math.round(200 * distBonus));
+              // Explode at the surviving ball (opposite of hitSide)
+              const tankSide = enemy.hitSide === 'left' ? 'right' : 'left';
               this.pendingKills.push({
                 enemy, color: CONFIG.COLORS.TANK, lane: enemy.lane,
-                ghostDepth: bulletVisualDepth, elapsed: 0,
+                ghostDepth: bulletVisualDepth, elapsed: 0, tankSide,
               });
             } else {
-              // Tank survives — instant explosion (tank is still visible)
+              // Tank survives — instant explosion at the destroyed ball (hitSide)
               const enemyVisualDepth = enemy.prevDepth + (enemy.depth - enemy.prevDepth) * enemyLerp;
               this.state.addScore(Math.round(50 * distBonus));
-              if (this.onHit) this.onHit(enemy.lane, enemyVisualDepth, CONFIG.COLORS.TANK);
+              if (this.onHit) this.onHit(enemy.lane, enemyVisualDepth, CONFIG.COLORS.TANK, { tankSide: enemy.hitSide });
             }
             this.state.scoreMultiplier = Math.min(this.state.scoreMultiplier + 0.1, 4);
           } else if (enemy.type === 'spiral' && enemy.prevLane !== enemy.lane) {

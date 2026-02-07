@@ -32,17 +32,19 @@ export class EntityRenderer {
     return bolts;
   }
 
-  _makeRadialBolts(numBolts) {
-    // Lightning bolts radiating outward from center (for phase shield)
+  _makeShieldBolts(numBolts) {
+    // Lightning bolts constrained to outward-facing semicircle (shield surface sparks)
+    // Angles are in [0, PI] range — offset by outward direction at render time
     const bolts = [];
     for (let i = 0; i < numBolts; i++) {
-      const angle = (i / numBolts) * Math.PI * 2 + (Math.random() - 0.5) * 0.6;
+      const angle = (i / (numBolts - 1)) * Math.PI + (Math.random() - 0.5) * 0.3;
       const numSegs = 2 + Math.floor(Math.random() * 2);
       const points = [];
       for (let j = 0; j <= numSegs; j++) {
         const frac = j / numSegs;
-        const jitterAngle = angle + (Math.random() - 0.5) * 0.8 * frac;
-        points.push({ dist: 0.15 + frac * 0.85, angle: jitterAngle });
+        const jitterAngle = angle + (Math.random() - 0.5) * 0.4 * frac;
+        // Start near surface (0.65) and spark outward (1.15)
+        points.push({ dist: 0.65 + frac * 0.5, angle: jitterAngle });
       }
       bolts.push(points);
     }
@@ -59,11 +61,11 @@ export class EntityRenderer {
         boltsB: this._makeEdgeBolts(4 + Math.floor(Math.random() * 2)),
       });
     } else if (type === 'phase') {
-      // Radial burst from enemy center
+      // Shield surface sparks (outward-facing semicircle)
       this.deflectEffects.push({
         type, lane, depth, prevDepth,
         elapsed: 0, lifetime: 300,
-        bolts: this._makeRadialBolts(8 + Math.floor(Math.random() * 4)),
+        bolts: this._makeShieldBolts(10 + Math.floor(Math.random() * 4)),
       });
     } else {
       // Single wall — bolts along one face edge
@@ -672,7 +674,7 @@ export class EntityRenderer {
     }
   }
 
-  // Phase shield: radial burst of short lightning bolts from the enemy center
+  // Phase shield: sparks on the outward-facing surface of the puck
   _drawPhaseDeflect(gfx, effect, visualOffset, rotAngle, state, visualDepth, lifeRatio, color) {
     const renderLane = state.getRenderLane(effect.lane);
     const visualLane = (renderLane + visualOffset) % CONFIG.NUM_LANES;
@@ -681,7 +683,7 @@ export class EntityRenderer {
     if (!pos) return;
 
     const scale = this.geometry.getScaleLerp(visualDepth);
-    const radius = 137 * scale * 0.55; // slightly larger than the puck
+    const radius = 137 * scale * 0.55;
 
     // Purple-tinted lightning for phase shield
     const pi = lifeRatio * lifeRatio;
@@ -690,25 +692,31 @@ export class EntityRenderer {
     const pb = Math.min(255, Math.floor(255 * pi));
     const phaseColor = (pr << 16) | (pg << 8) | pb;
 
-    // Draw radial bolts
+    // Outward direction (away from tunnel center) — bolts face the player
+    const outwardAngle = Math.atan2(pos.y - CONFIG.CENTER_Y, pos.x - CONFIG.CENTER_X);
+    // Bolt angles are in [0, PI] — rotate to center on outward direction
+    const angleOffset = outwardAngle - Math.PI / 2;
+
+    // Draw shield surface bolts
     for (const bolt of effect.bolts) {
       for (let j = 0; j < bolt.length - 1; j++) {
         const a = bolt[j];
         const b = bolt[j + 1];
-        const jitter = (Math.random() - 0.5) * 0.15 * lifeRatio;
-        const ax = pos.x + Math.cos(a.angle + jitter) * radius * a.dist;
-        const ay = pos.y + Math.sin(a.angle + jitter) * radius * a.dist;
-        const bx = pos.x + Math.cos(b.angle + jitter) * radius * b.dist;
-        const by = pos.y + Math.sin(b.angle + jitter) * radius * b.dist;
+        const jitter = (Math.random() - 0.5) * 0.12 * lifeRatio;
+        const ax = pos.x + Math.cos(a.angle + angleOffset + jitter) * radius * a.dist;
+        const ay = pos.y + Math.sin(a.angle + angleOffset + jitter) * radius * a.dist;
+        const bx = pos.x + Math.cos(b.angle + angleOffset + jitter) * radius * b.dist;
+        const by = pos.y + Math.sin(b.angle + angleOffset + jitter) * radius * b.dist;
         drawGlowLine(gfx, ax, ay, bx, by, phaseColor);
       }
     }
 
-    // Shield ring flash
+    // Shield arc flash (outward-facing semicircle, not full circle)
     if (lifeRatio > 0.4) {
       const fi = (lifeRatio - 0.4) / 0.6;
       const ringR = radius * (0.7 + 0.3 * fi);
-      drawGlowCircle(gfx, pos.x, pos.y, ringR, phaseColor);
+      drawGlowArc(gfx, pos.x, pos.y, ringR, ringR, phaseColor, 0,
+        outwardAngle - Math.PI * 0.6, outwardAngle + Math.PI * 0.6);
     }
   }
 
