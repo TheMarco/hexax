@@ -4,7 +4,7 @@ export class CollisionSystem {
   constructor(entityManager, state) {
     this.entityManager = entityManager;
     this.state = state;
-    this.onHit = null; // callback(lane, depth, prevDepth, color, prevLane) when a hit occurs
+    this.onHit = null; // callback(lane, depth, prevDepth, color) when a hit occurs
     this.onWallDeflect = null; // callback() when bullet hits a wall
     this.onHeartCollect = null; // callback() when bullet hits a heart
   }
@@ -43,7 +43,7 @@ export class CollisionSystem {
       if (hitWall) continue;
 
       for (const enemy of enemies) {
-        if (!enemy.alive) continue;
+        if (!enemy.alive || enemy.dying) continue;
         if (bulletDepth === enemy.depth && bullet.lane === enemy.lane) {
           // Phase enemy in shielded state — deflect like a wall
           if (enemy.type === 'phase' && enemy.phase === 'shielded') {
@@ -58,27 +58,24 @@ export class CollisionSystem {
           // Distance bonus: +50% score for kills at depth >= 4 (far away)
           const distBonus = enemy.depth >= 4 ? 1.5 : 1.0;
 
-          const ePrevLane = enemy.prevLane !== undefined ? enemy.prevLane : enemy.lane;
-
           if (enemy.type === 'heart') {
             enemy.kill();
             this.state.health = 100;
             this.state.repairAllSegments();
             if (this.onHeartCollect) this.onHeartCollect();
-            if (this.onHit) this.onHit(enemy.lane, enemy.depth, enemy.prevDepth, CONFIG.COLORS.HEART, ePrevLane);
+            if (this.onHit) this.onHit(enemy.lane, enemy.depth, enemy.prevDepth, CONFIG.COLORS.HEART);
           } else if (enemy.type === 'bomb') {
             // Bomb: explode it and kill ALL alive enemies
             enemy.kill();
             this.state.addScore(Math.round(100 * distBonus));
-            if (this.onHit) this.onHit(enemy.lane, enemy.depth, enemy.prevDepth, CONFIG.COLORS.BOMB, ePrevLane);
+            if (this.onHit) this.onHit(enemy.lane, enemy.depth, enemy.prevDepth, CONFIG.COLORS.BOMB);
 
             for (const e of enemies) {
-              if (!e.alive || e === enemy) continue;
+              if (!e.alive || e === enemy || e.dying) continue;
               const color = e.type === 'tank' ? CONFIG.COLORS.TANK : e.type === 'bomb' ? CONFIG.COLORS.BOMB : e.type === 'heart' ? CONFIG.COLORS.HEART : e.type === 'phase' ? CONFIG.COLORS.PHASE : e.type === 'spiral' ? CONFIG.COLORS.SPIRAL : CONFIG.COLORS.ENEMY;
-              const pl = e.prevLane !== undefined ? e.prevLane : e.lane;
               e.kill();
               this.state.addScore(100);
-              if (this.onHit) this.onHit(e.lane, e.depth, e.prevDepth, color, pl);
+              if (this.onHit) this.onHit(e.lane, e.depth, e.prevDepth, color);
             }
             // Bump multiplier for chain kills
             this.state.scoreMultiplier = Math.min(this.state.scoreMultiplier + 0.5, 4);
@@ -86,16 +83,23 @@ export class CollisionSystem {
             const dead = enemy.hit();
             if (dead) {
               this.state.addScore(Math.round(200 * distBonus));
-              if (this.onHit) this.onHit(enemy.lane, enemy.depth, enemy.prevDepth, CONFIG.COLORS.TANK, ePrevLane);
+              if (this.onHit) this.onHit(enemy.lane, enemy.depth, enemy.prevDepth, CONFIG.COLORS.TANK);
             } else {
               this.state.addScore(Math.round(50 * distBonus));
-              if (this.onHit) this.onHit(enemy.lane, enemy.depth, enemy.prevDepth, CONFIG.COLORS.TANK, ePrevLane);
+              if (this.onHit) this.onHit(enemy.lane, enemy.depth, enemy.prevDepth, CONFIG.COLORS.TANK);
             }
+            this.state.scoreMultiplier = Math.min(this.state.scoreMultiplier + 0.1, 4);
+          } else if (enemy.type === 'spiral' && enemy.prevLane !== enemy.lane) {
+            // Spiral mid-lane-change: defer explosion until animation completes
+            enemy.dying = true;
+            enemy.dyingColor = CONFIG.COLORS.SPIRAL;
+            this.state.addScore(Math.round(100 * distBonus));
+            this.state.scoreMultiplier = Math.min(this.state.scoreMultiplier + 0.1, 4);
           } else {
             enemy.kill();
             this.state.addScore(Math.round(100 * distBonus));
             const hitColor = enemy.type === 'phase' ? CONFIG.COLORS.PHASE : enemy.type === 'spiral' ? CONFIG.COLORS.SPIRAL : CONFIG.COLORS.ENEMY;
-            if (this.onHit) this.onHit(enemy.lane, enemy.depth, enemy.prevDepth, hitColor, ePrevLane);
+            if (this.onHit) this.onHit(enemy.lane, enemy.depth, enemy.prevDepth, hitColor);
             // Increment multiplier on consecutive kills
             this.state.scoreMultiplier = Math.min(this.state.scoreMultiplier + 0.1, 4);
           }

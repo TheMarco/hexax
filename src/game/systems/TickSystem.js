@@ -41,9 +41,9 @@ export class TickSystem {
     // Spawn before movement so new entities move immediately
     this.spawnSystem.maybeSpawn();
 
-    // Move enemies and walls
+    // Move enemies and walls (skip dying spirals — they're frozen mid-animation)
     for (const e of this.entityManager.enemies) {
-      if (e.alive) e.tick();
+      if (e.alive && !e.dying) e.tick();
     }
     for (const w of this.entityManager.walls) {
       if (w.alive) w.tick();
@@ -76,7 +76,7 @@ export class TickSystem {
 
     // Damage checks — enemies that reached the player
     for (const enemy of this.entityManager.enemies) {
-      if (enemy.alive && enemy.depth < 0) {
+      if (enemy.alive && !enemy.dying && enemy.depth < 0) {
         let dmg = 10;
         let color = CONFIG.COLORS.ENEMY;
         if (enemy.type === 'tank') { dmg = enemy.hp >= 2 ? 20 : 10; color = CONFIG.COLORS.TANK; }
@@ -85,6 +85,7 @@ export class TickSystem {
         else if (enemy.type === 'phase') { color = CONFIG.COLORS.PHASE; }
         else if (enemy.type === 'spiral') { color = CONFIG.COLORS.SPIRAL; }
         enemy.kill();
+        this.state.scoreMultiplier = 1; // reset multiplier on any player hit
         if (this.onPlayerHit) this.onPlayerHit(enemy.lane, color);
 
         // Segment integrity damage (not for hearts — they just pass through)

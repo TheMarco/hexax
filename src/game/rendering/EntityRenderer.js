@@ -30,15 +30,16 @@ export class EntityRenderer {
       if (visualDepth >= 0 && visualDepth <= CONFIG.MAX_DEPTH) {
         let pos = this.geometry.getMidpointLerp(visualDepth, visualLane, rotAngle);
 
-        // Spiral enemies: interpolate lane position for smooth lateral movement
+        // Spiral enemies: interpolate lane position for smooth lateral movement (accelerated)
         if (enemy.type === 'spiral' && enemy.alive && enemy.prevLane !== enemy.lane) {
+          const laneLerp = Math.min(1, enemyLerp * CONFIG.SPIRAL_LANE_SPEED);
           const prevRenderLane = state.getRenderLane(enemy.prevLane);
           const prevVisualLane = (prevRenderLane + visualOffset) % CONFIG.NUM_LANES;
           const prevPos = this.geometry.getMidpointLerp(visualDepth, prevVisualLane, rotAngle);
           if (pos && prevPos) {
             pos = {
-              x: prevPos.x + (pos.x - prevPos.x) * enemyLerp,
-              y: prevPos.y + (pos.y - prevPos.y) * enemyLerp,
+              x: prevPos.x + (pos.x - prevPos.x) * laneLerp,
+              y: prevPos.y + (pos.y - prevPos.y) * laneLerp,
             };
           }
         }

@@ -7,6 +7,8 @@ export class SpiralEnemy extends Entity {
     this.spinDir = Math.random() < 0.5 ? 1 : -1;
     this.prevLane = lane;
     this.spinTick = 0;
+    this.dying = false;
+    this.dyingColor = 0;
   }
 
   tick() {

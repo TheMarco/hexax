@@ -39,4 +39,5 @@ export const CONFIG = Object.freeze({
   WALL_Z_THICKNESS: 0.15,
   WALL_HEIGHT: 48,
   PHASE_DEPTH: 2,
+  SPIRAL_LANE_SPEED: 3,
 });

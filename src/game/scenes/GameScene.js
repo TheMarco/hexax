@@ -25,8 +25,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
-    this.sound = this.game.registry.get('soundEngine');
-    this.sound.stopMusic(); // clean up from previous game if restarting
+    this.soundEngine = this.game.registry.get('soundEngine');
+    this.soundEngine.stopMusic(); // clean up from previous game if restarting
     this.geometry = new TunnelGeometry();
     this.tunnelRenderer = new TunnelRenderer(this.geometry);
     this.entityRenderer = new EntityRenderer(this.geometry);
@@ -36,47 +36,34 @@ export class GameScene extends Phaser.Scene {
     this.tunnelExplosion = new TunnelExplosionRenderer(this.geometry);
     this.collisionSystem = new CollisionSystem(this.entityManager, this.state);
     this.collisionSystem.onWallDeflect = () => {
-      this.sound.playHitWall();
+      this.soundEngine.playHitWall();
     };
     this.collisionSystem.onHeartCollect = () => {
-      this.sound.playHeart();
+      this.soundEngine.playHeart();
     };
-    this.collisionSystem.onHit = (lane, depth, prevDepth, color, prevLane) => {
+    this.collisionSystem.onHit = (lane, depth, prevDepth, color) => {
       const VISUAL_OFFSET = 2;
       const renderLane = this.state.getRenderLane(lane);
       const visualLane = (renderLane + VISUAL_OFFSET) % CONFIG.NUM_LANES;
       const enemyLerp = this.tickSystem.enemyTimer.getProgress();
       const visualDepth = prevDepth + (depth - prevDepth) * enemyLerp;
-      let pos = this.geometry.getMidpointLerp(visualDepth, visualLane, this._rotAngle);
+      const pos = this.geometry.getMidpointLerp(visualDepth, visualLane, this._rotAngle);
       if (!pos) return;
 
-      // Interpolate explosion position for lane-changing enemies (spiral)
-      if (prevLane !== undefined && prevLane !== lane) {
-        const prevRenderLane = this.state.getRenderLane(prevLane);
-        const prevVisualLane = (prevRenderLane + VISUAL_OFFSET) % CONFIG.NUM_LANES;
-        const prevPos = this.geometry.getMidpointLerp(visualDepth, prevVisualLane, this._rotAngle);
-        if (prevPos) {
-          pos = {
-            x: prevPos.x + (pos.x - prevPos.x) * enemyLerp,
-            y: prevPos.y + (pos.y - prevPos.y) * enemyLerp,
-          };
-        }
-      }
-
       this.explosionRenderer.spawn(pos.x, pos.y, color);
-      this.sound.playExplosion();
+      this.soundEngine.playExplosion();
     };
     this.spawnSystem = new SpawnSystem(this.entityManager, this.state);
     this.inputSystem = new InputSystem(this, this.state, this.entityManager);
     this.inputSystem.onFire = () => {
-      this.sound.playFire();
+      this.soundEngine.playFire();
     };
     this.tickSystem = new TickSystem(this, this.state, this.entityManager, this.collisionSystem, this.spawnSystem);
     this.tickSystem.onPlayerHit = (lane, color) => {
       const VISUAL_OFFSET = 2;
       const pos = this.geometry.getMidpointLerp(0, (0 + VISUAL_OFFSET) % CONFIG.NUM_LANES, this._rotAngle);
       this.explosionRenderer.spawn(pos.x, pos.y, color);
-      this.sound.playBreach();
+      this.soundEngine.playBreach();
     };
     this.tickSystem.onWallHit = (tier) => {
       // Visual feedback per tier
@@ -110,8 +97,8 @@ export class GameScene extends Phaser.Scene {
     };
     this.tickSystem.onGameOver = () => {
       this.tunnelExplosion.trigger();
-      this.sound.playTunnelExplosion();
-      this.sound.stopMusic();
+      this.soundEngine.playTunnelExplosion();
+      this.soundEngine.stopMusic();
     };
     this.hud = new HUD(this);
 
@@ -142,10 +129,10 @@ export class GameScene extends Phaser.Scene {
 
     // Play get ready sound on game start, then start music
     this.time.delayedCall(500, () => {
-      this.sound.playGetReady();
+      this.soundEngine.playGetReady();
     });
     this.time.delayedCall(2000, () => {
-      this.sound.startMusic();
+      this.soundEngine.startMusic();
     });
   }
 
@@ -159,7 +146,7 @@ export class GameScene extends Phaser.Scene {
     this._rotTarget = direction * STEP_ANGLE;
     this._rotElapsed = 0;
     this._rotActive = true;
-    this.sound.playRotate();
+    this.soundEngine.playRotate();
     // Kill phosphor persistence during rotation to avoid ghosting
     const overlay = this.game.registry.get('shaderOverlay');
     if (overlay) overlay.setPhosphorDecay(0.1);
@@ -218,6 +205,23 @@ export class GameScene extends Phaser.Scene {
 
     const bulletLerp = this.tickSystem.bulletTimer.getProgress();
     const enemyLerp = this.tickSystem.enemyTimer.getProgress();
+
+    // Resolve dying spirals once their lane animation has completed
+    const laneLerp = Math.min(1, enemyLerp * CONFIG.SPIRAL_LANE_SPEED);
+    if (laneLerp >= 1) {
+      for (const enemy of this.entityManager.enemies) {
+        if (!enemy.alive || !enemy.dying) continue;
+        const renderLane = this.state.getRenderLane(enemy.lane);
+        const visualLane = (renderLane + VISUAL_OFFSET) % CONFIG.NUM_LANES;
+        const visualDepth = enemy.prevDepth + (enemy.depth - enemy.prevDepth) * enemyLerp;
+        const pos = this.geometry.getMidpointLerp(visualDepth, visualLane, effectiveRotAngle);
+        if (pos) {
+          this.explosionRenderer.spawn(pos.x, pos.y, enemy.dyingColor);
+          this.soundEngine.playExplosion();
+        }
+        enemy.kill();
+      }
+    }
 
     this.explosionRenderer.update(delta);
     this.tunnelExplosion.update(delta);

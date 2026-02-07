@@ -18,7 +18,6 @@ npm run build  # production build to dist/
 | Left Arrow  | Rotate world left (60°)       |
 | Right Arrow | Rotate world right (60°)      |
 | Space       | Fire bullet / Restart         |
-| R           | Restart (game over screen)    |
 
 ### Mobile
 Touch controls via backdrop cabinet (`backdropnew.png`):
@@ -56,6 +55,8 @@ src/
     │   ├── Tank.js                  # type:'tank', hp=2, hit() decrements hp, hitSide for visual, tick() → depth -= 1
     │   ├── Bomb.js                  # type:'bomb', tick() → depth -= 1
     │   ├── Heart.js                 # type:'heart', tick() → depth -= 1
+    │   ├── PhaseEnemy.js            # type:'phase', shielded→vulnerable at depth ≤ 2, tick() → depth -= 1
+    │   ├── SpiralEnemy.js           # type:'spiral', changes lane every 2 ticks, tick() → depth -= 1
     │   ├── Bullet.js                # type:'bullet', prevDepth for lerp, tick() → depth += 1
     │   └── EntityManager.js         # Arrays: enemies[], bullets[], walls[], doublewalls[]
     ├── systems/
@@ -119,7 +120,7 @@ public/backdropnew.png               # Mobile arcade cabinet backdrop image
 - **Enemy timer** (starts `TICK_MS = 800ms`, speeds up to `500ms` over ~2.5 min): moves enemies/walls/doublewalls, checks damage, spawns
 - **Bullet timer** (`BULLET_TICK_MS = 200ms`): moves bullets, resolves collisions, decrements fire cooldown
 - Both timers independently run collision checks (enemy may move into bullet, or vice versa)
-- Enemy tick speed: `TICK_MS - (TICK_MS - 500) * (secs/150)^2` (quadratic decay over 2.5 minutes)
+- Enemy tick speed: `TICK_MS - (TICK_MS - 500) * min(1, secs/240)` (linear decay over 4 minutes)
 
 ### Smooth Visuals on Discrete Grid
 - Rotation: 150ms linear interpolation via `_rotAngle`, applied to all geometry lookups
@@ -134,16 +135,25 @@ public/backdropnew.png               # Mobile arcade cabinet backdrop image
   - Tank (damaged): **-10 HP**
   - Bomb: **-20 HP**
   - Heart: **-10 HP**
+  - Phase/Spiral: **-10 HP**
 - Game over when health reaches **0**
 - An explosion spawns at the player position on each hit
 - Walls/doublewalls on non-player lanes are dodged and removed (no damage)
+
+### Segment Damage (Tunnel Integrity)
+- Each of the 6 tunnel segments tracks damage separately
+- When an enemy (not a heart) reaches the player, that lane's segment is marked as damaged
+- **First hit on a segment**: visual damage indicator on tunnel
+- **Second hit on same segment**: **instant death** regardless of remaining HP
+- Hearts repair ALL damaged segments when collected (shot)
+- HUD warnings: "HEXAX INTEGRITY COMPROMISED!" on first damage, "HEXAX INTEGRITY CRITICAL!" at 4+ damaged segments
 
 ### Wall Escalation (3-tier)
 Walls on the player lane use a cumulative `wallHits` counter:
 - **Tier 1** (1st hit): **-30 HP**, HUD shows "WARNING", tunnel flash + wobble
 - **Tier 2** (2nd hit): **-60 HP**, HUD shows "STRUCTURE CRITICAL", bigger flash + wobble + health bar pulse
 - **Tier 3** (3rd hit): **instant death** regardless of remaining HP
-- Resets score multiplier to 1.0 on any wall hit
+- Resets score multiplier to 1.0 (also resets on any enemy reaching player)
 
 ---
 
@@ -181,16 +191,30 @@ Walls on the player lane use a cumulative `wallHits` counter:
 - If it reaches player: **-20 HP damage**
 
 ### Heart (pink, `0xff4488`)
-- Shooting it restores health to **100%** (full heal)
+- Shooting it restores health to **100%** (full heal) and repairs all damaged tunnel segments
 - Rendered as a wireframe heart shape laid flat (like the hockey puck, with perspective foreshortening)
 - Stored in `enemies[]` array, distinguished by `type === 'heart'`
 - If it reaches player without being shot: **-10 HP damage** (must shoot to get the heal)
-- Spawn rate: **5%** (rare)
+
+### Phase Enemy (purple, `0xcc66ff`)
+- **Shielded state** at depths > `PHASE_DEPTH` (2) — bullets deflect off like walls (plays wall deflect sound)
+- **Vulnerable state** at depth ≤ 2 — can be shot like a regular enemy
+- Rendered as dashed puck when shielded, solid puck when vulnerable
+- White flash on shield deflect and on phase transition
+- Stored in `enemies[]` array, distinguished by `type === 'phase'`
+- Score: **+100** (when vulnerable)
+
+### Spiral Enemy (cyan, `0x44ffdd`)
+- Moves diagonally — advances 1 depth per tick AND changes lane every 2 ticks
+- Random spin direction (clockwise or counter-clockwise) set at spawn
+- Rendered as orb with directional arrow indicating spin direction
+- Tracks `prevLane` for smooth visual lane interpolation
+- Stored in `enemies[]` array, distinguished by `type === 'spiral'`
+- Score: **+100**
 
 ### Bullet (light green, `0xaaffdd`)
 - Fires from player position (depth 0) down the current lane (`lane = worldRot`)
-- Rate limited: `FIRE_COOLDOWN_BULLET_TICKS = 1.5` (300ms between shots)
-- Additional limit: only one bullet per lane at a time
+- Rate limited: `FIRE_COOLDOWN_BULLET_TICKS = 1.5` (effectively 400ms — 2 bullet ticks due to integer decrement)
 - Auto-killed when `depth > MAX_DEPTH`
 - Rendered as small diamond with smooth depth interpolation
 
@@ -206,19 +230,22 @@ Collision checks happen in order: walls → doublewalls → enemies.
 - `onWallDeflect` callback plays `hitwall.mp3`
 
 ### Bullet vs Enemy
-Grid-based — if `bullet.depth === enemy.depth && bullet.lane === enemy.lane`:
+Grid-based — if `floor(bullet.depth) === enemy.depth && bullet.lane === enemy.lane`:
 - **Regular enemy**: kill both, +100 × multiplier, orange explosion
 - **Tank (not dead)**: kill bullet only, call `tank.hit()`, +50 × multiplier, blue explosion, tank persists
 - **Tank (killed)**: kill both, +200 × multiplier, blue explosion
+- **Phase (shielded)**: bullet deflected like a wall (hitFlash, wall deflect sound), phase enemy unharmed
+- **Phase (vulnerable)**: kill both, +100 × multiplier, purple explosion
+- **Spiral**: kill both, +100 × multiplier, cyan explosion
 - **Bomb**: kill bomb, +100 × multiplier, yellow explosion, then chain-kill ALL other alive enemies (+100 each). Multiplier bumps +0.5
-- **Heart**: kill heart, restore health to 100%, pink explosion, plays `heart.mp3`
+- **Heart**: kill heart, restore health to 100%, repair all segments, pink explosion, plays `heart.mp3`
 - **Distance bonus**: kills at depth ≥ 4 get **+50%** score
-- `onHit(lane, depth, prevDepth, color)` callback triggers `ExplosionRenderer.spawn()` with entity-specific color
+- `onHit(lane, depth, prevDepth, color)` callback triggers `ExplosionRenderer.spawn()` at the enemy's current lane position
 
 ### Score Multiplier
 - Starts at 1.0, max 4.0
-- +0.1 per regular enemy kill, +0.5 per bomb chain
-- **Resets to 1.0** on wall hit
+- +0.1 per enemy kill (regular, tank, phase, spiral), +0.5 per bomb chain
+- **Resets to 1.0** on any player hit (wall or enemy reaching depth 0)
 - Displayed in HUD when > 1.0
 
 ---
@@ -226,32 +253,34 @@ Grid-based — if `bullet.depth === enemy.depth && bullet.lane === enemy.lane`:
 ## Spawn System
 
 ### Weighted Spawn Pool
-| Entity     | Weight | Notes                     |
-|------------|--------|---------------------------|
-| Enemy      | 55     | Available from start       |
-| Wall       | 14     | Unlocks at 20s             |
-| Tank       | 11     | Unlocks at 40s             |
-| DoubleWall | 9      | Unlocks at 70s             |
-| Bomb       | 9      | Unlocks at 100s            |
-| Heart      | 2      | Unlocks at 100s            |
+| Entity     | Weight   | Notes                                          |
+|------------|----------|-------------------------------------------------|
+| Enemy      | 55       | Available from start                            |
+| Wall       | 14       | Unlocks at 20s                                  |
+| Tank       | 11       | Unlocks at 15s                                  |
+| DoubleWall | 9        | Unlocks at 70s                                  |
+| Bomb       | 9        | Unlocks at 100s                                 |
+| Heart      | 2→12     | Unlocks at 100s, weight ramps up over time      |
+| Phase      | 10       | Unlocks at 15s                                  |
+| Spiral     | 16→55    | Unlocks at 70s, weight ramps up over time       |
 
-Weights are normalized among unlocked types only.
+Weights are normalized among unlocked types only. Hearts are excluded when health ≥ 80.
 
 ### Spawn Interval
-Formula: `clamp(round(3.8 - sqrt(secs / 18)), 1, 4)` ticks between spawns.
+Formula: `3.5 - 2.5 * min(1, secs / 300)` — fractional ticks between spawns (budget accumulator).
 | Elapsed    | Ticks Between Spawns |
 |------------|---------------------|
-| 0s         | 4                   |
-| ~12s       | 3                   |
-| ~29s       | 2                   |
-| ~58s       | 1                   |
+| 0s         | 3.5                 |
+| 60s        | 3.0                 |
+| 150s       | 2.25                |
+| 300s       | 1.0                 |
 
 ### Wall Density Cap
 Max active walls (wall + doublewall): `min(1 + floor(secs / 35), 4)`. If capped, walls/doublewalls excluded from spawn pool.
 
 ### Pattern Moments
-Every 30-45 seconds, a pattern activates for 6-10 seconds:
-- **Adjacent**: 60% chance to spawn walls on adjacent lanes
+Every 30-45 seconds (real time, ms-based), a pattern activates for 6-10 seconds:
+- **Adjacent**: 60% chance to spawn walls on successive adjacent lanes (forming wall formations)
 - **Spiral**: lanes increment mod 6 each spawn
 - **Gap**: one guaranteed safe lane
 - **Enemy Rush**: enemies only (no walls/tanks/bombs)
@@ -292,6 +321,8 @@ Additive blend mode (`Phaser.BlendModes.ADD`) on the single Graphics object.
 - **Heart**: parametric heart curve laid flat with foreshortening, front + back face outlines + 3 connecting side lines
 - **Walls**: 3D slabs with perpendicular height (`_wallPerp`), front face + back face + 4 connecting corner edges
 - **DoubleWalls**: single continuous 3D slab spanning 2 faces, one perpendicular for whole span, 5 connecting edges
+- **Phase (puck/dashed puck)**: dashed ellipses when shielded, solid puck when vulnerable, white flash on transition
+- **Spiral (orb + arrow)**: circle with tangent arrow showing spin direction
 - **Ship**: gun turret design — base platform rectangle + tapered barrel trapezoid
 
 ### Wall Rendering Details
@@ -308,7 +339,7 @@ Additive blend mode (`Phaser.BlendModes.ADD`) on the single Graphics object.
   - Inner stroked rectangle (vector style, not filled) snaps to segment boundaries
   - Segments and divider lines disappear as health drops
   - Turns red when health ≤ 30
-- **Game over**: centered "GAME OVER / Press R to Restart"
+- **Game over**: centered "GAME OVER / Press Fire to Restart"
 
 ### Tunnel Dimming (Vector mode)
 - Tunnel lines render at 50% brightness (`TUNNEL_DIM`, `ACTIVE_LANE_DIM` constants)
@@ -395,15 +426,16 @@ Web Audio API with separate gain nodes:
 | `MAX_DEPTH`           | 6                | `NUM_SEGMENTS - 1`                 |
 | `TICK_MS`             | 800              | Enemy/wall movement interval       |
 | `BULLET_TICK_MS`      | 200              | Bullet movement interval           |
-| `FIRE_COOLDOWN_BULLET_TICKS` | 1.5       | In bullet ticks (300ms)            |
-| `R0`                  | 249              | Base hex radius                    |
+| `FIRE_COOLDOWN_BULLET_TICKS` | 1.5       | Effectively 2 bullet ticks (400ms) |
+| `R0`                  | 300              | Base hex radius                    |
 | `SCALE_MIN`           | 0.05             | Smallest ring scale (far end)      |
 | `SCALE_POWER`         | 0.5              | Perspective curve exponent         |
 | `ANGLE_OFFSET`        | `-PI/3`          | Flat-bottom hex orientation        |
 | `WIDTH × HEIGHT`      | 768 × 672        |                                    |
-| `CENTER_X, CENTER_Y`  | 384, 381         | Tunnel vanishing point             |
+| `CENTER_X, CENTER_Y`  | 384, 355         | Tunnel vanishing point             |
 | `WALL_Z_THICKNESS`    | 0.15             | Depth extent of wall blocks        |
-| `WALL_HEIGHT`         | 40               | Pixel height of wall perpendicular |
+| `WALL_HEIGHT`         | 48               | Pixel height of wall perpendicular |
+| `PHASE_DEPTH`         | 2                | Depth at which phase enemy becomes vulnerable |
 
 ### Colors (hex integers, except HUD)
 | Key            | Value      | Used For                    |
@@ -419,6 +451,8 @@ Web Audio API with separate gain nodes:
 | `ACTIVE_LANE`  | `0xbbffdd` | Highlighted bottom face     |
 | `BOMB`         | `0xffdd44` | Bomb (yellow)               |
 | `HEART`        | `0xff4488` | Heart (pink)                |
+| `PHASE`        | `0xcc66ff` | Phase enemy (purple)        |
+| `SPIRAL`       | `0x44ffdd` | Spiral enemy (cyan)         |
 | `HUD`          | `'#7cffb2'`| Score/health text (CSS string) |
 
 ---
@@ -448,12 +482,14 @@ Invisible absolutely-positioned divs over the backdrop's button artwork:
 
 ## Gotchas & Pitfalls
 
-- **Bullet initial depth = 0** (player position), not 1. The tick moves it to 1 before collision check.
+- **Bullet initial depth = 0** (player position). The tick moves it to 1 before the post-move collision check, but the pre-move check catches enemies at depth 0.
 - **Dead entities must be filtered** in tick loops (`if (e.alive)`) to avoid ticking killed entities.
 - **`scene.restart()` creates all new instances** — no manual reset needed on subsystems.
 - **Tank is stored in `enemies[]`**, not a separate array. Distinguished by `entity.type === 'tank'` and presence of `hp` / `hit()` method.
 - **Bomb is stored in `enemies[]`**. Distinguished by `entity.type === 'bomb'`. Chain-kills all other enemies when shot.
-- **Heart is stored in `enemies[]`**. Distinguished by `entity.type === 'heart'`. Must be shot to heal; damages player if it reaches depth 0.
+- **Heart is stored in `enemies[]`**. Distinguished by `entity.type === 'heart'`. Must be shot to heal; damages player if it reaches depth 0. Also repairs all damaged tunnel segments when collected.
+- **Phase enemy is stored in `enemies[]`**. Distinguished by `entity.type === 'phase'`. Shielded at depth > 2, vulnerable at depth ≤ 2. Bullets deflect off shielded state.
+- **Spiral enemy is stored in `enemies[]`**. Distinguished by `entity.type === 'spiral'`. Changes lane every 2 ticks. Has `prevLane` for visual interpolation.
 - **DoubleWall has its own array** (`doublewalls[]`) separate from `walls[]`.
 - **Walls/doublewalls cannot be shot** — CollisionSystem only checks `enemies[]` vs `bullets[]`.
 - **`WALL` color constant exists but is unused** — wall rendering uses `TUNNEL` color for consistency with the tunnel wireframe.
@@ -462,11 +498,13 @@ Invisible absolutely-positioned divs over the backdrop's button artwork:
 - **Health bar uses stroked rectangles** (not filled) — consistent with vector screen aesthetic.
 - **`onPlayerHit` callback** fires when entities deal damage to the player, triggering explosions at the player position.
 - **Bullets are stopped by walls** — CollisionSystem checks walls/doublewalls before enemies. Wall gets hitFlash, bullet is killed.
-- **SoundEngine is shared** — created once in `main.js`, stored in `game.registry`, survives scene restarts. AudioContext must be created during a user gesture for iOS.
+- **SoundEngine is shared** — created once in `main.js`, stored in `game.registry`, survives scene restarts. AudioContext must be created during a user gesture for iOS. Accessed as `this.soundEngine` in GameScene (not `this.sound`, which is Phaser's built-in SoundManager).
 - **Phosphor decay is dynamic** — set to 0.1 during rotation (prevents smearing), restored to 0.78 when done.
 - **Wall escalation is cumulative** — `wallHits` counter persists for the entire game, 3rd wall hit = instant death.
 - **`getMidpointLerp` can return null** for negative depth — always guard with `if (!pos) return;` in callbacks.
 - **Spawn happens before movement** in `_onEnemyTick` so entities move immediately on their spawn tick.
+- **Segment damage is cumulative** — each lane tracks damage independently. Second hit on same lane = instant death. Hearts repair all segments.
+- **Pattern timing is ms-based** — uses `state.elapsedMs` timestamps, not tick counts, so pattern durations are consistent regardless of tick speed changes.
 
 ---
 
@@ -481,7 +519,7 @@ Invisible absolutely-positioned divs over the backdrop's button artwork:
 6. Notify ring flash (onEnemyMove callback)
 7. Resolve collisions (bullet vs wall deflect, bullet vs enemy)
 8. Remove dead enemies (shot ones)
-9. Damage checks: enemies at depth < 0 → apply type-specific damage, kill entity
+9. Damage checks: enemies at depth < 0 → segment damage (non-hearts) + apply type-specific HP damage, kill entity
 10. Damage checks: walls at depth < 0 on player lane → wall escalation (else dodge/remove)
 11. Damage checks: doublewalls at depth < 0 on player lane → wall escalation (else dodge/remove)
 12. If health ≤ 0 → game over (onGameOver callback, stop music)
@@ -528,11 +566,15 @@ Invisible absolutely-positioned divs over the backdrop's button artwork:
 14. **Health bar**: 10 segments, segments disappear on damage, turns red at ≤ 30 HP
 15. **Wall escalation**: 1st wall = -30, 2nd = -60, 3rd = instant death, with warnings
 16. **Bullet vs wall**: bullet destroyed, wall flashes bright, hitwall sound plays
-17. **Game over**: health reaches 0, "GAME OVER" + R/Space to restart, tunnel explosion, music stops
-18. **Ramp**: spawn cadence increases over time (4→3→2→1 ticks), tick speed increases
-19. **Entity gating**: walls at 20s, tanks at 40s, doublewalls at 70s, bombs/hearts at 100s
-20. **Score multiplier**: increments on kills, displayed in HUD, resets on wall hit
-21. **Explosion colors**: orange (enemy), blue (tank), yellow (bomb), pink (heart), white (wall)
+17. **Game over**: health reaches 0, "GAME OVER" + Space/Fire to restart, tunnel explosion, music stops
+18. **Ramp**: spawn cadence increases over time (3.5→1 ticks), tick speed increases (800→500ms)
+19. **Entity gating**: tanks/phase at 15s, walls at 20s, doublewalls/spirals at 70s, bombs/hearts at 100s
+20. **Score multiplier**: increments on kills (including tanks), displayed in HUD, resets on wall hit
+21. **Explosion colors**: orange (enemy), blue (tank), yellow (bomb), pink (heart), purple (phase), cyan (spiral), white (wall)
 22. **Input queuing**: left→space fires in the turned lane, not the departing lane
 23. **Mobile**: backdrop cabinet, touch zones, display mode toggle, audio works on iOS
 24. **Display shaders**: CRT mode (scanlines, bloom), Vector mode (phosphor, persistence, blue hue)
+25. **Phase enemy**: shielded at depth > 2 (deflects bullets), vulnerable at depth ≤ 2
+26. **Spiral enemy**: changes lanes while approaching, arrow shows direction
+27. **Segment damage**: enemy reaching player damages segment, second hit on same segment = instant death
+28. **Heart segment repair**: shooting heart repairs all damaged segments

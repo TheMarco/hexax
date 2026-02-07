@@ -71,7 +71,7 @@ export class InputSystem {
   _fire() {
     if (this.state.fireCooldown > 0) return;
     const lane = this.state.worldRot;
-    this.entityManager.addBullet(new Bullet(lane, 0.2));
+    this.entityManager.addBullet(new Bullet(lane, 0));
     this.state.fireCooldown = CONFIG.FIRE_COOLDOWN_BULLET_TICKS;
     if (this.onFire) this.onFire();
   }

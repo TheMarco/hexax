@@ -46,40 +46,43 @@ export class SpawnSystem {
     this.state = state;
     this.spawnBudget = 0;
 
-    // Pattern moment state
-    this._patternTimer = 0;       // ticks until next pattern
-    this._patternDuration = 0;    // ticks remaining in current pattern
+    // Pattern moment state (ms-based to avoid drift as tick speed changes)
+    this._nextPatternAt = 0;      // elapsedMs when next pattern starts
+    this._patternEndAt = 0;       // elapsedMs when current pattern ends
     this._activePattern = null;   // current pattern object or null
     this._spiralLane = 0;         // for spiral pattern
     this._gapLane = 0;            // for gap pattern
+    this._adjacentLane = 0;       // for adjacent pattern
     this._nextPatternIn();        // schedule first pattern
   }
 
   reset() {
     this.spawnBudget = 0;
-    this._patternTimer = 0;
-    this._patternDuration = 0;
+    this._nextPatternAt = 0;
+    this._patternEndAt = 0;
     this._activePattern = null;
     this._spiralLane = 0;
     this._gapLane = 0;
+    this._adjacentLane = 0;
     this._nextPatternIn();
   }
 
   _nextPatternIn() {
-    // 30-45 seconds / TICK_MS = ticks until next pattern
+    // 30-45 seconds from now (in elapsed game time)
     const secs = 30 + Math.random() * 15;
-    this._patternTimer = Math.round(secs * 1000 / CONFIG.TICK_MS);
+    this._nextPatternAt = this.state.elapsedMs + secs * 1000;
   }
 
   _startPattern() {
     // Pick random pattern
     const idx = Math.floor(Math.random() * PATTERNS.length);
     this._activePattern = PATTERNS[idx];
-    // 6-10 seconds duration in ticks
+    // 6-10 seconds duration (in elapsed game time)
     const secs = 6 + Math.random() * 4;
-    this._patternDuration = Math.round(secs * 1000 / CONFIG.TICK_MS);
+    this._patternEndAt = this.state.elapsedMs + secs * 1000;
     this._spiralLane = Math.floor(Math.random() * CONFIG.NUM_LANES);
     this._gapLane = Math.floor(Math.random() * CONFIG.NUM_LANES);
+    this._adjacentLane = Math.floor(Math.random() * CONFIG.NUM_LANES);
   }
 
   _getUnlockedTypes() {
@@ -144,16 +147,14 @@ export class SpawnSystem {
   }
 
   maybeSpawn() {
-    // Update pattern timing
+    // Update pattern timing (ms-based, immune to tick speed changes)
     if (this._activePattern) {
-      this._patternDuration--;
-      if (this._patternDuration <= 0) {
+      if (this.state.elapsedMs >= this._patternEndAt) {
         this._activePattern = null;
         this._nextPatternIn();
       }
     } else {
-      this._patternTimer--;
-      if (this._patternTimer <= 0) {
+      if (this.state.elapsedMs >= this._nextPatternAt) {
         this._startPattern();
       }
     }
@@ -216,14 +217,14 @@ export class SpawnSystem {
   // --- Pattern implementations ---
 
   _patternAdjacent() {
-    // Walls prefer adjacent lanes
+    // Walls on successive adjacent lanes, forming a wall formation
     const unlocked = this._getUnlockedTypes();
     const wallCapped = this._getActiveWallCount() >= this._getMaxActiveWalls();
     const hasWalls = unlocked.includes('wall') && !wallCapped;
 
     if (hasWalls && Math.random() < 0.6) {
-      const lane = Math.floor(Math.random() * CONFIG.NUM_LANES);
-      this._spawnType('wall', lane);
+      this._adjacentLane = (this._adjacentLane + 1) % CONFIG.NUM_LANES;
+      this._spawnType('wall', this._adjacentLane);
     } else {
       this._spawnNormal();
     }
