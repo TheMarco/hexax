@@ -133,6 +133,18 @@
       justify-content: center;
       overflow-y: auto;
     }
+
+    /* iPad / wider screens: scale cabinet by height instead of width */
+    @media (min-aspect-ratio: 9/16) {
+      #mobile-cabinet {
+        width: auto;
+        height: 100vh;
+      }
+      #mobile-cabinet img {
+        width: auto;
+        height: 100%;
+      }
+    }
   </style>
 </head>
 <body>

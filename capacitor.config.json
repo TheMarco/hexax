@@ -1,0 +1,20 @@
+{
+  "appId": "com.aicreated.hexax",
+  "appName": "Hexax",
+  "webDir": "dist",
+  "ios": {
+    "contentInset": "never",
+    "preferredContentMode": "mobile",
+    "scheme": "Hexax",
+    "backgroundColor": "#000000"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 0
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#000000"
+    }
+  }
+}

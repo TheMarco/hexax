@@ -1,3 +1,18 @@
 node_modules/
 dist/
 .claude/
+
+# iOS build artifacts
+ios/App/App/public
+ios/App/build
+ios/App/DerivedData
+ios/App/Pods
+ios/App/*.xcarchive
+ios/App/App.xcodeproj/xcuserdata
+ios/App/App.xcodeproj/project.xcworkspace/xcuserdata
+ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+ios/capacitor-cordova-ios-plugins
+ios/App/App/capacitor.config.json
+ios/App/App/config.xml
+*.xcuserstate
+.swiftpm/
