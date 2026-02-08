@@ -454,7 +454,7 @@ void main() {
   float blueVar = 0.7 + 0.3 * sin(u_time * 0.4 + curved.y * 4.0 + curved.x * 2.5);
   float blueNoise = hash2(floor(gl_FragCoord.xy * 0.5)) * 0.15;
   vec3 blueTint = vec3(0.02, 0.03, 0.08) * (blueVar + blueNoise);
-  float blueGate = smoothstep(0.15, 1.0, luma(color));
+  float blueGate = max(0.55, smoothstep(0.15, 1.0, luma(color)));
   color += blueTint * blueGate;
 
   // Subtle analog noise
