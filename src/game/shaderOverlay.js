@@ -129,7 +129,7 @@ void main() {
                 + toLinear(texture2D(u_texture, pxCenter + vec2( ht.x, 0.0)).rgb)
                 + toLinear(texture2D(u_texture, pxCenter + vec2(0.0, -ht.y)).rgb)
                 + toLinear(texture2D(u_texture, pxCenter + vec2(0.0,  ht.y)).rgb);
-  color += max(halation * 0.25 - 0.4, 0.0) * 1.5 * HALATION_STRENGTH;
+  color += max(halation * 0.25 - 0.45, 0.0) * 1.5 * HALATION_STRENGTH;
 
   // ── 4. Gaussian beam scanlines with brightness-dependent bloom ──
   float virtualY = curved.y * vRes.y;
@@ -441,7 +441,8 @@ void main() {
   vec2 grainCoord = gl_FragCoord.xy;
   float grain = hash2(grainCoord) * 0.08 - 0.04;
   float intensity = luma(color);
-  color += grain * max(intensity, 0.02);
+  float grainAmt = smoothstep(0.08, 0.6, intensity);
+  color += grain * grainAmt;
 
   // Glass surface reflection
   vec2 glassCoord = curved * 2.0 - 1.0;
@@ -453,7 +454,8 @@ void main() {
   float blueVar = 0.7 + 0.3 * sin(u_time * 0.4 + curved.y * 4.0 + curved.x * 2.5);
   float blueNoise = hash2(floor(gl_FragCoord.xy * 0.5)) * 0.15;
   vec3 blueTint = vec3(0.02, 0.03, 0.08) * (blueVar + blueNoise);
-  color += blueTint;
+  float blueGate = smoothstep(0.15, 1.0, luma(color));
+  color += blueTint * blueGate;
 
   // Subtle analog noise
   float n = (hash(gl_FragCoord.xy, u_time) - 0.5) * 0.01;
@@ -465,7 +467,11 @@ void main() {
 
   // Per-channel phosphor persistence (colored trails)
   // Flip Y when reading the FBO
-  vec3 prev = texture2D(u_prevFrame, vec2(uv.x, 1.0 - uv.y)).rgb;
+  vec2 jitter = vec2(
+    (hash(gl_FragCoord.xy, u_time) - 0.5),
+    (hash(gl_FragCoord.yx, u_time + 17.0) - 0.5)
+  ) * 0.0004;
+  vec3 prev = texture2D(u_prevFrame, vec2(uv.x, 1.0 - uv.y) + jitter).rgb;
   color = max(color, prev * u_phosphorDecay);
 
   gl_FragColor = vec4(clamp(color, 0.0, 1.0), 1.0);
