@@ -26,14 +26,14 @@ export const CONFIG = Object.freeze({
     BULLET: 0xaaffdd,
     SHIP: 0xffffff,
     HUD: '#7cffb2',
-    WALL: 0xffcc44,
-    TANK: 0x4488ff,
-    TANK_DAMAGED: 0x88bbff,
+    WALL: 0xff4444,        // Red
+    TANK: 0xffc688,        // Peachy orange (G=198 ensures overlap with tunnel stays under green-dominant threshold)
+    TANK_DAMAGED: 0xffc688, // Peachy orange
     ACTIVE_LANE: 0xbbffdd,
     BOMB: 0xffdd44,
     HEART: 0xff4488,
     PHASE: 0xcc66ff,
-    SPIRAL: 0x44ffdd,
+    SPIRAL: 0xff66ff,      // Light magenta (former tank color)
   },
 
   WALL_Z_THICKNESS: 0.15,

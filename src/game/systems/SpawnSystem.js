@@ -54,6 +54,11 @@ export class SpawnSystem {
     this._gapLane = 0;            // for gap pattern
     this._adjacentLane = 0;       // for adjacent pattern
     this._nextPatternIn();        // schedule first pattern
+
+    // Test mode: cycle through all enemy types (?test flag)
+    this._testMode = window.location.search.includes('test');
+    this._testSequence = ['enemy', 'tank', 'bomb', 'heart', 'phase', 'spiral', 'wall', 'doublewall'];
+    this._testIndex = 0;
   }
 
   reset() {
@@ -147,6 +152,21 @@ export class SpawnSystem {
   }
 
   maybeSpawn() {
+    // Test mode: cycle through all enemy types
+    if (this._testMode) {
+      const interval = 2; // spawn every 2 ticks in test mode
+      this.spawnBudget = (this.spawnBudget || 0) + (1 / interval);
+
+      if (this.spawnBudget >= 1) {
+        this.spawnBudget -= 1;
+        const type = this._testSequence[this._testIndex];
+        this._testIndex = (this._testIndex + 1) % this._testSequence.length;
+        const lane = Math.floor(Math.random() * CONFIG.NUM_LANES);
+        this._spawnType(type, lane);
+      }
+      return;
+    }
+
     // Update pattern timing (ms-based, immune to tick speed changes)
     if (this._activePattern) {
       if (this.state.elapsedMs >= this._patternEndAt) {

@@ -35,9 +35,9 @@ export class GameScene extends Phaser.Scene {
     this.explosionRenderer = new ExplosionRenderer();
     this.tunnelExplosion = new TunnelExplosionRenderer(this.geometry);
     this.collisionSystem = new CollisionSystem(this.entityManager, this.state);
-    this.collisionSystem.onWallDeflect = (type, lane, depth, prevDepth, lane2) => {
+    this.collisionSystem.onWallDeflect = (entity) => {
       this.soundEngine.playHitWall();
-      this.entityRenderer.spawnDeflect(type, lane, depth, prevDepth, lane2);
+      this.entityRenderer.spawnDeflect(entity);
     };
     this.collisionSystem.onHeartCollect = () => {
       this.soundEngine.playHeart();
@@ -104,18 +104,24 @@ export class GameScene extends Phaser.Scene {
     };
     this.hud = new HUD(this);
 
-    // Ring flash: intensity per ring, set to 1.0 when entities arrive
+    // Ring flash: intensity per ring (used for wall hits only)
     this._ringFlash = new Array(CONFIG.NUM_SEGMENTS).fill(0);
-    this.tickSystem.onEnemyMove = (depths) => {
-      for (const d of depths) {
-        if (d >= 0 && d < CONFIG.NUM_SEGMENTS) {
-          this._ringFlash[d] = 1.0;
-        }
-      }
-    };
 
+    // Multi-layer WebGL rendering for proper occlusion
+    // Layer 0: Tunnel (background, additive glow)
+    this.tunnelGfx = this.add.graphics();
+    this.tunnelGfx.setBlendMode(Phaser.BlendModes.ADD);
+    this.tunnelGfx.setDepth(0);
+
+    // Layer 1: Entity masks (opaque black fills to block tunnel)
+    this.maskGfx = this.add.graphics();
+    this.maskGfx.setBlendMode(Phaser.BlendModes.NORMAL);
+    this.maskGfx.setDepth(1);
+
+    // Layer 2: Entity wireframes (additive glow outlines on top)
     this.gfx = this.add.graphics();
     this.gfx.setBlendMode(Phaser.BlendModes.ADD);
+    this.gfx.setDepth(2);
 
     // Smooth rotation state
     this._rotAngle = 0;       // current visual offset in radians
@@ -218,6 +224,8 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    this.tunnelGfx.clear();
+    this.maskGfx.clear();
     this.gfx.clear();
 
     const VISUAL_OFFSET = 2;
@@ -307,8 +315,11 @@ export class GameScene extends Phaser.Scene {
           visualDamage[vl] = true;
         }
       }
-      this.tunnelRenderer.draw(this.gfx, activeFaceVertex, effectiveRotAngle, this._ringFlash, visualDamage);
-      this.entityRenderer.draw(this.gfx, this.state, this.entityManager, VISUAL_OFFSET, effectiveRotAngle, bulletLerp, enemyLerp, dt);
+      // Draw tunnel to background layer (additive glow)
+      this.tunnelRenderer.draw(this.tunnelGfx, activeFaceVertex, effectiveRotAngle, this._ringFlash, visualDamage);
+
+      // Draw entities with masking: masks block tunnel, wireframes glow on top
+      this.entityRenderer.draw(this.gfx, this.maskGfx, this.state, this.entityManager, VISUAL_OFFSET, effectiveRotAngle, bulletLerp, enemyLerp, dt);
     }
 
     this.explosionRenderer.draw(this.gfx);

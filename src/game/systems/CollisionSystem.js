@@ -26,7 +26,7 @@ export class CollisionSystem {
           bullet.hitDepth = wall.depth;
           bullet.hitPrevDepth = wall.prevDepth;
           wall.hitFlash = 1.0;
-          if (this.onWallDeflect) this.onWallDeflect('wall', wall.lane, wall.depth, wall.prevDepth);
+          if (this.onWallDeflect) this.onWallDeflect(wall);
           hitWall = true;
           break;
         }
@@ -40,7 +40,7 @@ export class CollisionSystem {
           bullet.hitDepth = dw.depth;
           bullet.hitPrevDepth = dw.prevDepth;
           dw.hitFlash = 1.0;
-          if (this.onWallDeflect) this.onWallDeflect('doublewall', dw.lane, dw.depth, dw.prevDepth, dw.lane2);
+          if (this.onWallDeflect) this.onWallDeflect(dw);
           hitWall = true;
           break;
         }
@@ -56,7 +56,7 @@ export class CollisionSystem {
             bullet.hitDepth = enemy.depth;
             bullet.hitPrevDepth = enemy.prevDepth;
             enemy.hitFlash = 1.0;
-            if (this.onWallDeflect) this.onWallDeflect('phase', enemy.lane, enemy.depth, enemy.prevDepth);
+            if (this.onWallDeflect) this.onWallDeflect(enemy);
             break;
           }
 

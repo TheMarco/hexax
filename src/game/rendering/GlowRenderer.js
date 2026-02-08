@@ -4,12 +4,24 @@
  */
 
 const GLOW_PASSES = [
-  { width: 16, alpha: 0.08 },  // very wide outer glow, subtle
-  { width: 8, alpha: 0.22 },   // wide mid-glow
-  { width: 2.5, alpha: 1.0 },  // sharp core
+  { width: 10, alpha: 0.05 },  // wide outer glow, subtle
+  { width: 5, alpha: 0.15 },   // mid-glow
+  { width: 2, alpha: 1.0 },    // sharp core
 ];
 
-export function drawGlowLine(gfx, x1, y1, x2, y2, color) {
+export function drawGlowLine(gfx, x1, y1, x2, y2, color, mask = false) {
+  // Draw thick black line first (normal blend) to block what's behind
+  if (mask) {
+    const prevBlend = gfx.defaultBlendMode;
+    gfx.setBlendMode(0); // NORMAL
+    gfx.lineStyle(20, 0x000000, 1.0);
+    gfx.beginPath();
+    gfx.moveTo(x1, y1);
+    gfx.lineTo(x2, y2);
+    gfx.strokePath();
+    gfx.setBlendMode(prevBlend); // back to ADD
+  }
+
   for (const pass of GLOW_PASSES) {
     gfx.lineStyle(pass.width, color, pass.alpha);
     gfx.beginPath();
@@ -19,7 +31,22 @@ export function drawGlowLine(gfx, x1, y1, x2, y2, color) {
   }
 }
 
-export function drawGlowPolygon(gfx, points, color) {
+export function drawGlowPolygon(gfx, points, color, mask = false) {
+  // Draw thick black outline first (normal blend) to block what's behind
+  if (mask) {
+    const prevBlend = gfx.defaultBlendMode;
+    gfx.setBlendMode(0); // NORMAL
+    gfx.lineStyle(20, 0x000000, 1.0);
+    gfx.beginPath();
+    gfx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      gfx.lineTo(points[i].x, points[i].y);
+    }
+    gfx.closePath();
+    gfx.strokePath();
+    gfx.setBlendMode(prevBlend); // back to ADD
+  }
+
   for (const pass of GLOW_PASSES) {
     gfx.lineStyle(pass.width, color, pass.alpha);
     gfx.beginPath();
@@ -42,7 +69,7 @@ export function drawGlowDiamond(gfx, cx, cy, size, color) {
   drawGlowPolygon(gfx, pts, color);
 }
 
-export function drawGlowCircle(gfx, cx, cy, radius, color, segments = 16) {
+export function drawGlowCircle(gfx, cx, cy, radius, color, segments = 16, mask = false) {
   const points = [];
   for (let i = 0; i < segments; i++) {
     const angle = (i / segments) * Math.PI * 2;
@@ -51,10 +78,10 @@ export function drawGlowCircle(gfx, cx, cy, radius, color, segments = 16) {
       y: cy + radius * Math.sin(angle),
     });
   }
-  drawGlowPolygon(gfx, points, color);
+  drawGlowPolygon(gfx, points, color, mask);
 }
 
-export function drawGlowEllipse(gfx, cx, cy, rx, ry, color, rotation = 0, segments = 16) {
+export function drawGlowEllipse(gfx, cx, cy, rx, ry, color, rotation = 0, segments = 16, mask = false) {
   const points = [];
   const cosR = Math.cos(rotation);
   const sinR = Math.sin(rotation);
@@ -67,7 +94,7 @@ export function drawGlowEllipse(gfx, cx, cy, rx, ry, color, rotation = 0, segmen
       y: cy + lx * sinR + ly * cosR,
     });
   }
-  drawGlowPolygon(gfx, points, color);
+  drawGlowPolygon(gfx, points, color, mask);
 }
 
 export function drawGlowArc(gfx, cx, cy, rx, ry, color, rotation = 0, startAngle = 0, endAngle = Math.PI * 2, segments = 16) {
@@ -114,6 +141,74 @@ export function drawGlowDashedLine(gfx, x1, y1, x2, y2, color, numDashes = 4) {
       x1 + (x2 - x1) * t0, y1 + (y2 - y1) * t0,
       x1 + (x2 - x1) * t1, y1 + (y2 - y1) * t1, color);
   }
+}
+
+// Mask helpers - draw opaque fills to block what's behind
+export function fillMaskRect(gfx, x1, y1, x2, y2, width) {
+  // Draw a thick line as a filled rectangle
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  const nx = -dy / len;
+  const ny = dx / len;
+
+  const hw = width / 2;
+
+  gfx.fillStyle(0x000000, 1.0);
+  gfx.beginPath();
+  gfx.moveTo(x1 + nx * hw, y1 + ny * hw);
+  gfx.lineTo(x2 + nx * hw, y2 + ny * hw);
+  gfx.lineTo(x2 - nx * hw, y2 - ny * hw);
+  gfx.lineTo(x1 - nx * hw, y1 - ny * hw);
+  gfx.closePath();
+  gfx.fillPath();
+}
+
+export function fillMaskCircle(gfx, cx, cy, radius) {
+  const segments = 32;
+  gfx.fillStyle(0x000000, 1.0);
+  gfx.beginPath();
+
+  for (let i = 0; i <= segments; i++) {
+    const angle = (i / segments) * Math.PI * 2;
+    const x = cx + radius * Math.cos(angle);
+    const y = cy + radius * Math.sin(angle);
+
+    if (i === 0) {
+      gfx.moveTo(x, y);
+    } else {
+      gfx.lineTo(x, y);
+    }
+  }
+
+  gfx.closePath();
+  gfx.fillPath();
+}
+
+export function fillMaskEllipse(gfx, cx, cy, rx, ry, rotation = 0) {
+  const segments = 32;
+  const cosR = Math.cos(rotation);
+  const sinR = Math.sin(rotation);
+
+  gfx.fillStyle(0x000000, 1.0);
+  gfx.beginPath();
+
+  for (let i = 0; i <= segments; i++) {
+    const angle = (i / segments) * Math.PI * 2;
+    const lx = rx * Math.cos(angle);
+    const ly = ry * Math.sin(angle);
+    const x = cx + lx * cosR - ly * sinR;
+    const y = cy + lx * sinR + ly * cosR;
+
+    if (i === 0) {
+      gfx.moveTo(x, y);
+    } else {
+      gfx.lineTo(x, y);
+    }
+  }
+
+  gfx.closePath();
+  gfx.fillPath();
 }
 
 export function drawGlowClaw(gfx, cx, cy, size, color) {

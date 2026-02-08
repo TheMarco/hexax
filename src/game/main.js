@@ -5,7 +5,7 @@ import { GameScene } from './scenes/GameScene.js';
 
 export function StartGame(containerId) {
   return new Phaser.Game({
-    type: Phaser.CANVAS,
+    type: Phaser.WEBGL,  // Switch to WebGL for proper depth control
     parent: containerId,
     width: CONFIG.WIDTH,
     height: CONFIG.HEIGHT,
