@@ -11,7 +11,10 @@ void main() {
 `;
 
 // ── CRT raster display shader ──
-// Full-resolution sampling with scanlines and bloom
+// 256x224 NTSC simulation: gaussian beam scanlines, NTSC horizontal bandwidth
+// limiting, brightness-dependent beam bloom, halation, aperture grille mask,
+// warm color temperature, and subtle interlace flicker.
+// All effects adapt to display density — looks great from desktop to phone.
 const crtFragmentSource = `
 precision mediump float;
 
@@ -23,141 +26,167 @@ varying vec2 v_texCoord;
 
 #define PI 3.14159265359
 #define BLOOM_STRENGTH 0.65
-#define SCANLINE_STRENGTH 0.7
-#define MASK_STRENGTH 0.08
+#define HALATION_STRENGTH 0.35
+#define MASK_STRENGTH 0.12
 #define NOISE_STRENGTH 0.025
 #define FLICKER_STRENGTH 0.08
-#define ABERRATION_STRENGTH 0.0
 #define CURVATURE_STRENGTH 0.04
 #define CORNER_RADIUS 0.15
 
-// Fast gamma approximation
-vec3 toLinear(vec3 color) {
-  return color * color;
-}
+const vec2 vRes = vec2(256.0, 224.0);
+const vec2 vTexel = vec2(1.0 / 256.0, 1.0 / 224.0);
 
-vec3 toGamma(vec3 color) {
-  return sqrt(color);
-}
+vec3 toLinear(vec3 c) { return c * c; }
+vec3 toGamma(vec3 c) { return sqrt(c); }
 
-// RGB noise function
-vec3 noise(vec2 co, float time) {
-  float r = fract(sin(dot(co.xy + time, vec2(12.9898, 78.233))) * 43758.5453);
-  float g = fract(sin(dot(co.xy + time, vec2(93.9898, 67.345))) * 43758.5453);
-  float b = fract(sin(dot(co.xy + time, vec2(41.9898, 29.876))) * 43758.5453);
+vec3 noise3(vec2 co, float t) {
+  float r = fract(sin(dot(co + t, vec2(12.9898, 78.233))) * 43758.5453);
+  float g = fract(sin(dot(co + t, vec2(93.9898, 67.345))) * 43758.5453);
+  float b = fract(sin(dot(co + t, vec2(41.9898, 29.876))) * 43758.5453);
   return vec3(r, g, b) * 2.0 - 1.0;
 }
 
-// Apply barrel distortion (CRT curvature)
 vec2 curveUV(vec2 uv) {
-  vec2 centered = uv * 2.0 - 1.0;
-  float r2 = dot(centered, centered);
-  float distortion = 1.0 + r2 * CURVATURE_STRENGTH;
-  centered *= distortion;
-  return centered * 0.5 + 0.5;
+  vec2 c = uv * 2.0 - 1.0;
+  c *= 1.0 + dot(c, c) * CURVATURE_STRENGTH;
+  return c * 0.5 + 0.5;
 }
 
-// Rounded rectangle SDF
-float roundedRectSDF(vec2 uv, vec2 size, float radius) {
-  vec2 d = abs(uv - 0.5) * 2.0 - size + radius;
-  return min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - radius;
+float roundedRectSDF(vec2 uv, vec2 s, float r) {
+  vec2 d = abs(uv - 0.5) * 2.0 - s + r;
+  return min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - r;
 }
 
-// 5-tap blur at low-res texture scale (256x224)
-vec3 getBlur(sampler2D tex, vec2 uv) {
-  const vec2 texel = vec2(1.0 / 256.0, 1.0 / 224.0);
-  vec3 result = vec3(0.0);
-  result += toLinear(texture2D(tex, uv).rgb) * 0.4;
-  result += toLinear(texture2D(tex, uv + vec2(-texel.x, 0.0)).rgb) * 0.15;
-  result += toLinear(texture2D(tex, uv + vec2( texel.x, 0.0)).rgb) * 0.15;
-  result += toLinear(texture2D(tex, uv + vec2(0.0, -texel.y)).rgb) * 0.15;
-  result += toLinear(texture2D(tex, uv + vec2(0.0,  texel.y)).rgb) * 0.15;
-  return result;
+// 5-tap max-brightness sample — catches thin vector lines between virtual pixels
+vec3 maxSample(vec2 uv) {
+  vec2 vs = vec2(0.0, 0.4 * vTexel.y);
+  vec2 hs = vec2(0.4 * vTexel.x, 0.0);
+  vec3 s0 = toLinear(texture2D(u_texture, uv).rgb);
+  vec3 s1 = toLinear(texture2D(u_texture, uv - vs).rgb);
+  vec3 s2 = toLinear(texture2D(u_texture, uv + vs).rgb);
+  vec3 s3 = toLinear(texture2D(u_texture, uv - hs).rgb);
+  vec3 s4 = toLinear(texture2D(u_texture, uv + hs).rgb);
+  return max(max(max(s0, s1), max(s2, s3)), s4);
+}
+
+// 5-tap blur at virtual-pixel scale for bloom extraction
+vec3 getBlur(vec2 uv) {
+  vec3 r = toLinear(texture2D(u_texture, uv).rgb) * 0.4;
+  r += toLinear(texture2D(u_texture, uv + vec2(-vTexel.x, 0.0)).rgb) * 0.15;
+  r += toLinear(texture2D(u_texture, uv + vec2( vTexel.x, 0.0)).rgb) * 0.15;
+  r += toLinear(texture2D(u_texture, uv + vec2(0.0, -vTexel.y)).rgb) * 0.15;
+  r += toLinear(texture2D(u_texture, uv + vec2(0.0,  vTexel.y)).rgb) * 0.15;
+  return r;
 }
 
 void main() {
   vec2 uv = v_texCoord;
 
-  // Check rounded corners first
-  float cornerDist = roundedRectSDF(uv, vec2(1.0, 1.0), CORNER_RADIUS);
-  if (cornerDist > 0.0) {
+  if (roundedRectSDF(uv, vec2(1.0, 1.0), CORNER_RADIUS) > 0.0) {
     gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
     return;
   }
 
-  // Apply CRT curvature
-  vec2 curvedUV = curveUV(uv);
-
-  // Check bounds
+  vec2 curved = curveUV(uv);
   const float margin = 0.001;
-  if (curvedUV.x < -margin || curvedUV.x > 1.0 + margin ||
-      curvedUV.y < -margin || curvedUV.y > 1.0 + margin) {
+  if (curved.x < -margin || curved.x > 1.0 + margin ||
+      curved.y < -margin || curved.y > 1.0 + margin) {
     gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
     return;
   }
+  curved = clamp(curved, 0.0, 1.0);
 
-  curvedUV = clamp(curvedUV, 0.0, 1.0);
+  // Display density — how many screen pixels per virtual scanline
+  float pitch = u_resolution.y / vRes.y;
 
-  // Snap to 256x224 virtual pixel grid
-  const vec2 virtualRes = vec2(256.0, 224.0);
-  vec2 pixelUV = (floor(curvedUV * virtualRes) + 0.5) / virtualRes;
+  // ── 1. Virtual pixel sampling with NTSC horizontal blend ──
+  vec2 vPos = curved * vRes;
+  vec2 pxCenter = (floor(vPos) + 0.5) / vRes;
 
-  // Max-sample: cross pattern (5 taps) within each virtual pixel, take brightest.
-  // Vertical taps catch thin horizontal lines, horizontal taps catch thin vertical strokes (text).
-  vec2 vStep = vec2(0.0, 0.4 / virtualRes.y);
-  vec2 hStep = vec2(0.4 / virtualRes.x, 0.0);
-  vec3 s0 = toLinear(texture2D(u_texture, pixelUV).rgb);
-  vec3 s1 = toLinear(texture2D(u_texture, pixelUV - vStep).rgb);
-  vec3 s2 = toLinear(texture2D(u_texture, pixelUV + vStep).rgb);
-  vec3 s3 = toLinear(texture2D(u_texture, pixelUV - hStep).rgb);
-  vec3 s4 = toLinear(texture2D(u_texture, pixelUV + hStep).rgb);
-  vec3 color = max(max(max(s0, s1), max(s2, s3)), s4);
+  // Max-sample at center column (catches thin vector lines)
+  vec3 center = maxSample(pxCenter);
 
-  // Bloom at virtual-pixel scale
-  vec3 blur = getBlur(u_texture, pixelUV);
-  vec3 bloom = max(blur - 0.6, 0.0) * 2.5;
-  color += bloom * BLOOM_STRENGTH;
+  // Single-tap left/right neighbors for horizontal bandwidth blend
+  vec3 colL = toLinear(texture2D(u_texture, pxCenter - vec2(vTexel.x, 0.0)).rgb);
+  vec3 colR = toLinear(texture2D(u_texture, pxCenter + vec2(vTexel.x, 0.0)).rgb);
 
-  // Scanlines aligned to virtual pixel rows (224 rows).
-  // Dark gaps sit at boundaries BETWEEN rows, not through content.
-  float virtualY = curvedUV.y * 224.0;
-  float scanline = mix(1.0 - SCANLINE_STRENGTH, 1.0, sin(fract(virtualY) * PI));
-  color *= scanline;
+  // NTSC horizontal bandwidth: sub-pixel position shifts blend toward neighbor.
+  // Wider blend on small displays for cleaner look.
+  float blendAmt = mix(0.18, 0.10, smoothstep(1.5, 3.0, pitch));
+  float fx = fract(vPos.x);
+  float wL = blendAmt * (1.0 - fx);
+  float wR = blendAmt * fx;
+  vec3 color = center * (1.0 - wL - wR) + colL * wL + colR * wR;
 
-  // Very subtle phosphor mask
-  float x = mod(gl_FragCoord.x, 3.0);
-  vec3 mask = vec3(1.0);
-  if (x < 1.0) {
-    mask = vec3(1.0 + MASK_STRENGTH, 1.0 - MASK_STRENGTH * 0.3, 1.0 - MASK_STRENGTH * 0.3);
-  } else if (x < 2.0) {
-    mask = vec3(1.0 - MASK_STRENGTH * 0.3, 1.0 + MASK_STRENGTH, 1.0 - MASK_STRENGTH * 0.3);
+  // ── 2 & 3. Bloom + halation ──
+  // Tight bloom (1 virtual-pixel radius)
+  vec3 tightBlur = getBlur(pxCenter);
+  color += max(tightBlur - 0.6, 0.0) * 2.5 * BLOOM_STRENGTH;
+
+  // Wide halation (3 virtual-pixel radius) — diffuse glass glow
+  vec2 ht = vTexel * 3.0;
+  vec3 halation = toLinear(texture2D(u_texture, pxCenter + vec2(-ht.x, 0.0)).rgb)
+                + toLinear(texture2D(u_texture, pxCenter + vec2( ht.x, 0.0)).rgb)
+                + toLinear(texture2D(u_texture, pxCenter + vec2(0.0, -ht.y)).rgb)
+                + toLinear(texture2D(u_texture, pxCenter + vec2(0.0,  ht.y)).rgb);
+  color += max(halation * 0.25 - 0.4, 0.0) * 1.5 * HALATION_STRENGTH;
+
+  // ── 4. Gaussian beam scanlines with brightness-dependent bloom ──
+  float virtualY = curved.y * vRes.y;
+  float d = fract(virtualY) - 0.5;
+
+  // Base sigma: narrow on large displays (visible gaps), wide on small (merge)
+  float baseSigma = mix(0.65, 0.35, smoothstep(1.5, 3.0, pitch));
+
+  // Bright content blooms the beam wider — distinctive CRT characteristic
+  float bright = max(max(color.r, color.g), color.b);
+  float sigma = baseSigma + bright * 0.12;
+
+  float beam = exp(-0.5 * d * d / (sigma * sigma));
+
+  // Fade scanlines out below ~2px pitch to prevent moire
+  color *= mix(1.0, beam, smoothstep(1.0, 2.0, pitch));
+
+  // ── 5. Aperture grille (Trinitron-style vertical RGB stripes) ──
+  float mx = mod(gl_FragCoord.x, 3.0);
+  vec3 mask;
+  if (mx < 1.0) {
+    mask = vec3(1.0 + MASK_STRENGTH, 1.0 - MASK_STRENGTH * 0.5, 1.0 - MASK_STRENGTH * 0.5);
+  } else if (mx < 2.0) {
+    mask = vec3(1.0 - MASK_STRENGTH * 0.5, 1.0 + MASK_STRENGTH, 1.0 - MASK_STRENGTH * 0.5);
   } else {
-    mask = vec3(1.0 - MASK_STRENGTH * 0.3, 1.0 - MASK_STRENGTH * 0.3, 1.0 + MASK_STRENGTH);
+    mask = vec3(1.0 - MASK_STRENGTH * 0.5, 1.0 - MASK_STRENGTH * 0.5, 1.0 + MASK_STRENGTH);
   }
-  color *= mask;
+  // Thin dark separator between triads
+  float sep = smoothstep(0.0, 0.5, mx) * smoothstep(3.0, 2.5, mx);
+  mask *= mix(0.88, 1.0, sep);
+  // Fade mask on small displays to avoid aliasing
+  color *= mix(vec3(1.0), mask, smoothstep(1.0, 2.0, pitch));
 
-  // Subtle vignette (use curved UV for proper effect)
-  vec2 centered = curvedUV * 2.0 - 1.0;
-  float vignette = 1.0 - dot(centered, centered) * 0.12;
-  color *= vignette;
+  // ── 6. Warm color temperature (consumer NTSC TV) ──
+  color *= vec3(1.04, 1.01, 0.95);
 
-  // Add subtle RGB static noise
-  vec3 noiseValue = noise(gl_FragCoord.xy, u_time);
-  color += noiseValue * NOISE_STRENGTH;
+  // ── 7. Interlace flicker ──
+  // Very subtle even/odd scanline brightness alternation per frame
+  float fieldPhase = mod(floor(u_time * 30.0), 2.0);
+  float scanIdx = floor(virtualY);
+  float interlace = mod(scanIdx + fieldPhase, 2.0);
+  // Only apply when there are enough pixels to resolve scanlines
+  color *= 1.0 - interlace * 0.015 * smoothstep(1.5, 2.5, pitch);
 
-  // Brightness flicker (simulates CRT power fluctuation)
+  // Vignette
+  vec2 ctr = curved * 2.0 - 1.0;
+  color *= 1.0 - dot(ctr, ctr) * 0.12;
+
+  // RGB static noise
+  color += noise3(gl_FragCoord.xy, u_time) * NOISE_STRENGTH;
+
+  // Power supply flicker
   float flicker = sin(u_time * 13.7) * 0.5 + sin(u_time * 7.3) * 0.3 + sin(u_time * 23.1) * 0.2;
-  float colorBrightness = max(max(color.r, color.g), color.b);
-  flicker = flicker * FLICKER_STRENGTH * (1.0 + colorBrightness * 0.5);
-  color *= (1.0 + flicker);
+  float cb = max(max(color.r, color.g), color.b);
+  color *= 1.0 + flicker * FLICKER_STRENGTH * (1.0 + cb * 0.5);
 
-  // Convert back to gamma space
-  color = toGamma(color);
-
-  // Clamp to valid range
-  color = clamp(color, 0.0, 1.0);
-
-  gl_FragColor = vec4(color, 1.0);
+  gl_FragColor = vec4(clamp(toGamma(color), 0.0, 1.0), 1.0);
 }
 `;
 
