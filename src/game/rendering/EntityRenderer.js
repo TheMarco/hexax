@@ -710,8 +710,7 @@ _drawTank(gfx, maskGfx, lx, ly, rx, ry, size, hp, hitSide) {
 
 
   _drawPhaseEnemy(gfx, maskGfx, cx, cy, size, enemy, dt) {
-    const color = enemy.hitFlash > 0 ? 0xffffff :
-                  enemy.transitionFlash > 0 ? 0xffffff : PHASE_DIM;
+    const color = enemy.hitFlash > 0 ? 0xffffff : PHASE_DIM;
 
     // Decay flashes
     if (enemy.hitFlash > 0) {
@@ -1469,8 +1468,7 @@ _drawTank(gfx, maskGfx, lx, ly, rx, ry, size, hp, hitSide) {
   }
 
   _drawPhaseEnemyWireframe(gfx, cx, cy, size, enemy, dt) {
-    const color = enemy.hitFlash > 0 ? 0xffffff :
-                  enemy.transitionFlash > 0 ? 0xffffff : PHASE_DIM;
+    const color = enemy.hitFlash > 0 ? 0xffffff : PHASE_DIM;
     if (enemy.hitFlash > 0) {
       enemy.hitFlash = Math.max(0, enemy.hitFlash - dt * 4);
     }
