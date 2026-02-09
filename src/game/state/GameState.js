@@ -99,21 +99,56 @@ export class GameState {
   }
 
   /**
-   * Returns fractional spawn interval in ticks (not rounded).
-   * 0s=3.5, 30s=3, 90s=2, 180s=1.25, 300s=1 (floor)
-   * Smooth curve: no sudden jumps.
+   * Spawn interval with steep early ramp + plateaus for mastery.
+   * 0s=3.5 → 60s=2.3 (steep early ramp)
+   * 70-100s: plateau for spiral mastery (2.2)
+   * 100-420s: final ramp to 1.5
    */
   getSpawnInterval() {
     const secs = this.getElapsedSeconds();
-    const t = Math.min(1, secs / 300); // 0→1 over 5 minutes
-    return 3.5 - 2.5 * t;             // 3.5 → 1.0
+    if (secs < 60) {
+      // Steep initial ramp: 3.5 → 2.3
+      return 3.5 - 1.2 * Math.min(1, secs / 60);
+    } else if (secs < 70) {
+      // Gentle approach to plateau: 2.3 → 2.2
+      const t = (secs - 60) / 10;
+      return 2.3 - 0.1 * t;
+    } else if (secs < 100) {
+      // PLATEAU 1: Spiral mastery
+      return 2.2;
+    } else {
+      // Final ramp: 2.2 → 1.5 over 320s
+      const t = Math.min(1, (secs - 100) / 320);
+      return 2.2 - 0.7 * t;
+    }
   }
 
-  /** Enemy tick speed — starts at TICK_MS, gradually drops to 500ms over 4 min */
+  /**
+   * Tick speed with steep early ramp + plateaus for mastery.
+   * 0s=800ms → 60s=700ms (steep early ramp)
+   * 70-100s: plateau for spiral mastery (690ms)
+   * 100-150s: plateau for bomb/heart mastery (680ms)
+   * 150-480s: final ramp to 600ms
+   */
   getTickMs() {
     const secs = this.getElapsedSeconds();
-    const minTick = 500;
-    const decay = Math.min(1, secs / 240); // 0→1 over 4 minutes
-    return CONFIG.TICK_MS - (CONFIG.TICK_MS - minTick) * decay;
+    if (secs < 60) {
+      // Steep initial ramp: 800 → 700
+      return 800 - 100 * Math.min(1, secs / 60);
+    } else if (secs < 70) {
+      // Gentle approach: 700 → 690
+      const t = (secs - 60) / 10;
+      return 700 - 10 * t;
+    } else if (secs < 100) {
+      // PLATEAU 1: Spiral mastery
+      return 690;
+    } else if (secs < 150) {
+      // PLATEAU 2: Bomb/heart mastery
+      return 680;
+    } else {
+      // Final ramp: 680 → 600 over 330s
+      const t = Math.min(1, (secs - 150) / 330);
+      return 680 - 80 * t;
+    }
   }
 }

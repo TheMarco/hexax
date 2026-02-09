@@ -4,8 +4,9 @@ import { CONFIG } from '../config.js';
 export class Bullet extends Entity {
   constructor(lane, depth) {
     super(lane, depth, 'bullet');
-    this.prevDepth = depth;
-    // Support fractional starting depth (e.g., 0.5)
+    // Set prevDepth behind spawn point so bullet moves immediately via lerp
+    // This prevents the 200ms delay waiting for first tick
+    this.prevDepth = depth - 0.5;
     this.depth = depth;
   }
 

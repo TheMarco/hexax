@@ -71,7 +71,8 @@ export class InputSystem {
   _fire() {
     if (this.state.fireCooldown > 0) return;
     const lane = this.state.worldRot;
-    this.entityManager.addBullet(new Bullet(lane, 0));
+    // Spawn at 0.03 - just a few pixels above rim (not a full segment)
+    this.entityManager.addBullet(new Bullet(lane, 0.03));
     this.state.fireCooldown = CONFIG.FIRE_COOLDOWN_BULLET_TICKS;
     if (this.onFire) this.onFire();
   }

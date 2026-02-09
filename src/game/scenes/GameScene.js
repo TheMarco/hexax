@@ -315,8 +315,91 @@ export class GameScene extends Phaser.Scene {
           visualDamage[vl] = true;
         }
       }
-      // Draw tunnel to background layer (additive glow)
-      this.tunnelRenderer.draw(this.tunnelGfx, activeFaceVertex, effectiveRotAngle, this._ringFlash, visualDamage);
+
+      // Tunnel occlusion with conservative radii
+      const tunnelOccluders = [];
+      for (const enemy of this.entityManager.enemies) {
+        if (!enemy.alive) continue;
+
+        const renderLane = this.state.getRenderLane(enemy.lane);
+        const visualLane = (renderLane + VISUAL_OFFSET) % CONFIG.NUM_LANES;
+        const visualDepth = enemy.prevDepth + (enemy.depth - enemy.prevDepth) * enemyLerp;
+
+        if (visualDepth < 0 || visualDepth > CONFIG.MAX_DEPTH) continue;
+
+        let pos = this.geometry.getMidpointLerp(visualDepth, visualLane, effectiveRotAngle);
+
+        // Spiral enemies: interpolate lane position
+        if (enemy.type === 'spiral' && enemy.prevLane !== enemy.lane) {
+          const laneLerp = Math.min(1, enemyLerp * CONFIG.SPIRAL_LANE_SPEED);
+          const prevRenderLane = this.state.getRenderLane(enemy.prevLane);
+          const prevVisualLane = (prevRenderLane + VISUAL_OFFSET) % CONFIG.NUM_LANES;
+          const prevPos = this.geometry.getMidpointLerp(visualDepth, prevVisualLane, effectiveRotAngle);
+          if (pos && prevPos) {
+            pos = { x: prevPos.x + (pos.x - prevPos.x) * laneLerp, y: prevPos.y + (pos.y - prevPos.y) * laneLerp };
+          }
+        }
+
+        if (!pos) continue;
+
+        const scale = this.geometry.getScaleLerp(visualDepth);
+        const size = 137 * scale;
+
+        // No expansion - exact size to minimize black areas
+        const OCCLUDE_MULT = 1.0;
+
+        if (enemy.type === 'tank') {
+          // Tank has TWO spheres - add occlusion for both
+          const dx = CONFIG.CENTER_X - pos.x;
+          const dy = CONFIG.CENTER_Y - pos.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const nx = dx / dist;
+          const ny = dy / dist;
+          const px = -ny;
+          const py = nx;
+          const ballR = size * 0.32;
+          const spacing = size * 0.55;
+          const lx = pos.x - px * spacing;
+          const ly = pos.y - py * spacing;
+          const rx = pos.x + px * spacing;
+          const ry = pos.y + py * spacing;
+
+          const hp = enemy.hp || 2;
+          const hitSide = enemy.hitSide;
+          const drawLeft = hp >= 2 || hitSide === 'right';
+          const drawRight = hp >= 2 || hitSide === 'left';
+
+          if (drawLeft) {
+            tunnelOccluders.push({ x: lx, y: ly, r: ballR * OCCLUDE_MULT });
+          }
+          if (drawRight) {
+            tunnelOccluders.push({ x: rx, y: ry, r: ballR * OCCLUDE_MULT });
+          }
+        } else if (enemy.type === 'spiral') {
+          // Spiral: occlude only the circle body (0.15), not the arrow
+          const radius = size * 0.15;
+          tunnelOccluders.push({ x: pos.x, y: pos.y, r: radius * OCCLUDE_MULT });
+        } else if (enemy.type === 'bomb') {
+          // Bomb: r = size * 0.4
+          const radius = size * 0.4;
+          tunnelOccluders.push({ x: pos.x, y: pos.y, r: radius * OCCLUDE_MULT });
+        } else if (enemy.type === 'heart') {
+          // Heart: r = size * 0.5
+          const radius = size * 0.5;
+          tunnelOccluders.push({ x: pos.x, y: pos.y, r: radius * OCCLUDE_MULT });
+        } else if (enemy.type === 'phase') {
+          // Phase enemy (puck): r = size * 0.5
+          const radius = size * 0.5;
+          tunnelOccluders.push({ x: pos.x, y: pos.y, r: radius * OCCLUDE_MULT });
+        } else if (enemy.type === 'enemy') {
+          // Regular enemy (puck): r = size * 0.5
+          const radius = size * 0.5;
+          tunnelOccluders.push({ x: pos.x, y: pos.y, r: radius * OCCLUDE_MULT });
+        }
+      }
+
+      // Draw tunnel to background layer (additive glow) with occlusion
+      this.tunnelRenderer.draw(this.tunnelGfx, activeFaceVertex, effectiveRotAngle, this._ringFlash, visualDamage, delta, tunnelOccluders);
 
       // Draw entities with masking: masks block tunnel, wireframes glow on top
       this.entityRenderer.draw(this.gfx, this.maskGfx, this.state, this.entityManager, VISUAL_OFFSET, effectiveRotAngle, bulletLerp, enemyLerp, dt);

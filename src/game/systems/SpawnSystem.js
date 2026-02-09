@@ -123,9 +123,9 @@ export class SpawnSystem {
       return 2 + t * 10;
     }
     if (type === 'spiral') {
-      // 16 at unlock (70s) → 55 at 250s (~1 in 3 spawns)
-      const t = Math.min(Math.max((secs - 70) / 180, 0), 1);
-      return 16 + t * 39;
+      // 16 at unlock (70s) → 35 at 370s (~17% of spawns, more gradual ramp)
+      const t = Math.min(Math.max((secs - 70) / 300, 0), 1);
+      return 16 + t * 19;
     }
     return WEIGHTS[type];
   }

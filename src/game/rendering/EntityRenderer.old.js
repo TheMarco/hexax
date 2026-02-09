@@ -1,23 +1,58 @@
 import { CONFIG } from '../config.js';
 import { drawGlowDiamond, drawGlowPolygon, drawGlowLine, drawGlowClaw, drawGlowCircle, drawGlowEllipse, drawGlowArc, drawGlowDashedEllipse, drawGlowDashedLine, fillMaskEllipse, fillMaskCircle, fillMaskRect } from './GlowRenderer.js';
 
-// Individual brightness per enemy type (adjustable)
-const dimColor = (c, brightness) => {
-  const r = Math.floor(((c >> 16) & 0xff) * brightness);
-  const g = Math.floor(((c >> 8) & 0xff) * brightness);
-  const b = Math.floor((c & 0xff) * brightness);
+// Entity colors at 75% brightness (brighter than tunnel's 50% to maintain visibility while reducing bloom)
+const dimColor = (c) => {
+  const r = Math.floor(((c >> 16) & 0xff) * 0.75);
+  const g = Math.floor(((c >> 8) & 0xff) * 0.75);
+  const b = Math.floor((c & 0xff) * 0.75);
   return (r << 16) | (g << 8) | b;
 };
 
-const ENEMY_DIM = dimColor(CONFIG.COLORS.ENEMY, 0.8);         // Regular enemy (orange) - brighter
-const TANK_DIM = dimColor(CONFIG.COLORS.TANK, 0.4);           // Tank (peachy orange)
-const TANK_DAMAGED_DIM = dimColor(CONFIG.COLORS.TANK_DAMAGED, 0.4); // Tank damaged
-const BOMB_DIM = dimColor(CONFIG.COLORS.BOMB, 0.5);           // Bomb (yellow)
-const HEART_DIM = dimColor(CONFIG.COLORS.HEART, 0.8);         // Heart (pink) - brighter
-const PHASE_DIM = dimColor(CONFIG.COLORS.PHASE, 0.85);        // Phase enemy (purple) - brighter
-const SPIRAL_DIM = dimColor(CONFIG.COLORS.SPIRAL, 0.5);       // Spiral enemy (magenta)
-const BULLET_DIM = dimColor(CONFIG.COLORS.BULLET, 0.5);       // Bullet (cyan)
-const WALL_DIM = dimColor(CONFIG.COLORS.WALL, 0.9);           // Walls (red) - brighter
+const ENEMY_DIM = dimColor(CONFIG.COLORS.ENEMY);
+const TANK_DIM = dimColor(CONFIG.COLORS.TANK);
+const TANK_DAMAGED_DIM = dimColor(CONFIG.COLORS.TANK_DAMAGED);
+const BOMB_DIM = dimColor(CONFIG.COLORS.BOMB);
+const HEART_DIM = dimColor(CONFIG.COLORS.HEART);
+const PHASE_DIM = dimColor(CONFIG.COLORS.PHASE);
+const SPIRAL_DIM = dimColor(CONFIG.COLORS.SPIRAL);
+const BULLET_DIM = dimColor(CONFIG.COLORS.BULLET);
+
+// Helper: only draw arc if it faces toward the camera (tunnel center)
+function drawFrontFacingArc(
+  gfx,
+  cx, cy,
+  rx, ry,
+  color,
+  rotation,
+  startAngle,
+  endAngle,
+  segments
+) {
+  const mid = (startAngle + endAngle) * 0.5;
+  const world = mid + rotation;
+
+  const vx = Math.cos(world);
+  const vy = Math.sin(world);
+
+  const cxv = CONFIG.CENTER_X - cx;
+  const cyv = CONFIG.CENTER_Y - cy;
+
+  // CRITICAL: hysteresis to prevent flicker at silhouette
+  const VIS_EPSILON = 0.15;
+  if (vx * cxv + vy * cyv < VIS_EPSILON) return;
+
+  drawGlowArc(
+    gfx,
+    cx, cy,
+    rx, ry,
+    color,
+    rotation,
+    startAngle,
+    endAngle,
+    segments
+  );
+}
 
 export class EntityRenderer {
   constructor(geometry) {
@@ -87,7 +122,6 @@ export class EntityRenderer {
       });
     }
   }
-
 
   draw(gfx, maskGfx, state, entityManager, visualOffset, rotAngle = 0, bulletLerp = 0, enemyLerp = 0, dt = 0) {
     // Build render list with all entities and their visual depths
@@ -175,7 +209,7 @@ export class EntityRenderer {
       const visualDepth = wall.prevDepth + (wall.depth - wall.prevDepth) * enemyLerp;
 
       if (visualDepth >= 0 && visualDepth <= CONFIG.MAX_DEPTH) {
-        const color = wall.hitFlash > 0 ? CONFIG.COLORS.TUNNEL : WALL_DIM;
+        const color = wall.hitFlash > 0 ? CONFIG.COLORS.TUNNEL : CONFIG.COLORS.WALL;
         renderList.push({
           type: 'wall',
           depth: visualDepth,
@@ -197,7 +231,7 @@ export class EntityRenderer {
       const visualDepth = dw.prevDepth + (dw.depth - dw.prevDepth) * enemyLerp;
 
       if (visualDepth >= 0 && visualDepth <= CONFIG.MAX_DEPTH) {
-        const color = dw.hitFlash > 0 ? CONFIG.COLORS.TUNNEL : WALL_DIM;
+        const color = dw.hitFlash > 0 ? CONFIG.COLORS.TUNNEL : CONFIG.COLORS.WALL;
         renderList.push({
           type: 'doublewall',
           depth: visualDepth,
@@ -251,10 +285,14 @@ export class EntityRenderer {
         // Bullets should be bright - don't dim them
         drawGlowDiamond(gfx, item.pos.x, item.pos.y, Math.max(item.size, 2), CONFIG.COLORS.BULLET);
       } else if (item.type === 'wall') {
-        // Draw wireframe only (no blocker - it was hiding tunnel lines)
+        // Draw opaque blocker first (normal blend) to hide entities behind it
+        this._drawWallBlocker(gfx, item.depth, item.visualLane, item.rotAngle);
+        // Then draw wireframe (additive blend)
         this._drawWallWireframe(gfx, item.depth, item.visualLane, item.rotAngle, item.color);
       } else if (item.type === 'doublewall') {
-        // Draw wireframe only (no blocker - it was hiding tunnel lines)
+        // Draw opaque blocker first (normal blend) to hide entities behind it
+        this._drawDoubleWallBlocker(gfx, item.depth, item.visualLane1, item.visualLane2, item.rotAngle);
+        // Then draw wireframe (additive blend)
         this._drawDoubleWallWireframe(gfx, item.depth, item.visualLane1, item.visualLane2, item.rotAngle, item.color);
       } else if (item.type === 'deflect') {
         // Lightning effects are now depth-sorted
@@ -464,104 +502,103 @@ export class EntityRenderer {
       outwardAngle - rotation + Math.PI / 2, 16);
   }
 
-_drawTank(gfx, maskGfx, lx, ly, rx, ry, size, hp, hitSide) {
-  const color = hp === 1 ? TANK_DAMAGED_DIM : TANK_DIM;
-  const ballR = size * 0.28;
+  _drawTank(gfx, maskGfx, cx, cy, size, color, hp, hitSide) {
+    // O=O (full) or O= / =O (damaged)
+    const dx = CONFIG.CENTER_X - cx;
+    const dy = CONFIG.CENTER_Y - cy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const nx = dx / dist;  // toward center
+    const ny = dy / dist;
+    const px = -ny;  // perpendicular (along face edge)
+    const py = nx;
 
-  // Direction from sphere to tunnel center
-  const dx = CONFIG.CENTER_X - lx;
-  const dy = CONFIG.CENTER_Y - ly;
-  const dist = Math.hypot(dx, dy) || 1;
+    const ballR = size * 0.32;
+    const spacing = size * 0.55;
+    const barGap = ballR * 0.3;
 
-  // Tangent for connector
-  const px = -dy / dist;
-  const py = dx / dist;
+    // Ball positions (left and right along the face edge)
+    const lx = cx - px * spacing;
+    const ly = cy - py * spacing;
+    const rx = cx + px * spacing;
+    const ry = cy + py * spacing;
 
-  const drawLeft = hp >= 2 || hitSide === 'right';
-  const drawRight = hp >= 2 || hitSide === 'left';
+    const drawLeft = hp >= 2 || hitSide === 'right';
+    const drawRight = hp >= 2 || hitSide === 'left';
 
-  // ----------------------------
-  // DRAW BODY FIRST
-  // ----------------------------
+    // Draw 3D spheres (circle + two full meridians + one front arc)
+    if (drawLeft) {
+      const outwardAngle = Math.atan2(ly - CONFIG.CENTER_Y, lx - CONFIG.CENTER_X);
+      const radialAngle = Math.atan2(ly - CONFIG.CENTER_Y, lx - CONFIG.CENTER_X);
+      const tangentAngle = radialAngle + Math.PI / 2;
 
-  if (drawLeft) {
-    drawGlowCircle(gfx, lx, ly, ballR, color);
+      // Draw mask on maskGfx layer (like bomb does - works correctly)
+      fillMaskCircle(maskGfx, lx, ly, ballR);
+
+      // Outer circle
+      drawGlowCircle(gfx, lx, ly, ballR, color);
+      // All meridians as FRONT ARCS only to avoid overlap brightening
+      // Horizontal meridian arc
+      drawGlowArc(gfx, lx, ly, ballR, ballR * 0.3, color, tangentAngle,
+        outwardAngle - tangentAngle - Math.PI / 2,
+        outwardAngle - tangentAngle + Math.PI / 2, 16);
+      // Cross meridian arc
+      drawGlowArc(gfx, lx, ly, ballR * 0.3, ballR, color, tangentAngle + Math.PI / 2,
+        outwardAngle - tangentAngle - Math.PI,
+        outwardAngle - tangentAngle, 16);
+      // Vertical meridian arc
+      drawGlowArc(gfx, lx, ly, ballR * 0.3, ballR, color, radialAngle,
+        outwardAngle - radialAngle - Math.PI / 2,
+        outwardAngle - radialAngle + Math.PI / 2, 16);
+    }
+    if (drawRight) {
+      const outwardAngle = Math.atan2(ry - CONFIG.CENTER_Y, rx - CONFIG.CENTER_X);
+      const radialAngle = Math.atan2(ry - CONFIG.CENTER_Y, rx - CONFIG.CENTER_X);
+      const tangentAngle = radialAngle + Math.PI / 2;
+
+      // Draw mask on maskGfx layer (like bomb does - works correctly)
+      fillMaskCircle(maskGfx, rx, ry, ballR);
+
+      // Outer circle
+      drawGlowCircle(gfx, rx, ry, ballR, color);
+      // All meridians as FRONT ARCS only to avoid overlap brightening
+      // Horizontal meridian arc
+      drawGlowArc(gfx, rx, ry, ballR, ballR * 0.3, color, tangentAngle,
+        outwardAngle - tangentAngle - Math.PI / 2,
+        outwardAngle - tangentAngle + Math.PI / 2, 16);
+      // Cross meridian arc
+      drawGlowArc(gfx, rx, ry, ballR * 0.3, ballR, color, tangentAngle + Math.PI / 2,
+        outwardAngle - tangentAngle - Math.PI,
+        outwardAngle - tangentAngle, 16);
+      // Vertical meridian arc
+      drawGlowArc(gfx, rx, ry, ballR * 0.3, ballR, color, radialAngle,
+        outwardAngle - radialAngle - Math.PI / 2,
+        outwardAngle - radialAngle + Math.PI / 2, 16);
+    }
+
+    // Double bar connecting the two positions (= sign)
+    const blx = lx + px * ballR;
+    const bly = ly + py * ballR;
+    const brx = rx - px * ballR;
+    const bry = ry - py * ballR;
+
+    // Fill the entire connector area between spheres (extend for bars and glow)
+    const extend = barGap + 8; // bar gap + glow width
+    maskGfx.fillStyle(0x000000, 1.0);
+    maskGfx.beginPath();
+    maskGfx.moveTo(lx + px * ballR + nx * extend, ly + py * ballR + ny * extend);  // Top-left
+    maskGfx.lineTo(rx + px * ballR + nx * extend, ry + py * ballR + ny * extend);  // Top-right
+    maskGfx.lineTo(rx - px * ballR - nx * extend, ry - py * ballR - ny * extend);  // Bottom-right
+    maskGfx.lineTo(lx - px * ballR - nx * extend, ly - py * ballR - ny * extend);  // Bottom-left
+    maskGfx.closePath();
+    maskGfx.fillPath();
+
+    drawGlowLine(gfx,
+      blx + nx * barGap, bly + ny * barGap,
+      brx + nx * barGap, bry + ny * barGap, color);
+    drawGlowLine(gfx,
+      blx - nx * barGap, bly - ny * barGap,
+      brx - nx * barGap, bry - ny * barGap, color);
   }
-
-  if (drawRight) {
-    drawGlowCircle(gfx, rx, ry, ballR, color);
-  }
-
-  if (drawLeft && drawRight) {
-    drawGlowLine(
-      gfx,
-      lx + px * ballR, ly + py * ballR,
-      rx - px * ballR, ry - py * ballR,
-      color
-    );
-  }
-
-  // ----------------------------
-  // MASK INTERIOR (CRITICAL)
-  // ----------------------------
-
-  if (drawLeft) {
-    fillMaskCircle(maskGfx, lx, ly, ballR * 0.92);
-  }
-
-  if (drawRight) {
-    fillMaskCircle(maskGfx, rx, ry, ballR * 0.92);
-  }
-
-  // ----------------------------
-  // DRAW MERIDIANS ON TOP
-  // ----------------------------
-
-  if (drawLeft) {
-    const radial = Math.atan2(ly - CONFIG.CENTER_Y, lx - CONFIG.CENTER_X);
-    const tangent = radial + Math.PI / 2;
-
-    // Horizontal meridian
-    drawGlowEllipse(
-      gfx,
-      lx, ly,
-      ballR, ballR * 0.3,
-      tangent,
-      color
-    );
-
-    // Vertical meridian
-    drawGlowEllipse(
-      gfx,
-      lx, ly,
-      ballR * 0.3, ballR,
-      radial,
-      color
-    );
-  }
-
-  if (drawRight) {
-    const radial = Math.atan2(ry - CONFIG.CENTER_Y, rx - CONFIG.CENTER_X);
-    const tangent = radial + Math.PI / 2;
-
-    drawGlowEllipse(
-      gfx,
-      rx, ry,
-      ballR, ballR * 0.3,
-      tangent,
-      color
-    );
-
-    drawGlowEllipse(
-      gfx,
-      rx, ry,
-      ballR * 0.3, ballR,
-      radial,
-      color
-    );
-  }
-}
-
 
   _drawBomb(gfx, maskGfx, cx, cy, size, color) {
     // 3D sphere with spikes
@@ -668,46 +705,55 @@ _drawTank(gfx, maskGfx, lx, ly, rx, ry, size, hp, hitSide) {
     drawGlowLine(gfx, frontBottom.x, frontBottom.y, frontRight.x, frontRight.y, color);
   }
 
-  _drawSpiralEnemy(gfx, maskGfx, cx, cy, size, enemy, dt) {
-  const color = SPIRAL_DIM;
-  const r = size * 0.35;
+  _drawSpiralEnemy(gfx, maskGfx, cx, cy, size, color, spinDir) {
+    const r = size * 0.3;
+    const outwardAngle = Math.atan2(cy - CONFIG.CENTER_Y, cx - CONFIG.CENTER_X);
+    const radialAngle = Math.atan2(cy - CONFIG.CENTER_Y, cx - CONFIG.CENTER_X);
+    const tangentAngle = radialAngle + Math.PI / 2;
 
-  const radial = Math.atan2(cy - CONFIG.CENTER_Y, cx - CONFIG.CENTER_X);
-  const tangent = radial + Math.PI / 2;
+    // Draw mask on maskGfx layer (like bomb does - works correctly)
+    fillMaskCircle(maskGfx, cx, cy, r);
 
-  // ----------------------------
-  // BODY
-  // ----------------------------
+    // Orb (3D sphere: circle + all meridians as FRONT ARCS to avoid overlap)
+    drawGlowCircle(gfx, cx, cy, r, color);
+    // Horizontal meridian arc
+    drawGlowArc(gfx, cx, cy, r, r * 0.3, color, tangentAngle,
+      outwardAngle - tangentAngle - Math.PI / 2,
+      outwardAngle - tangentAngle + Math.PI / 2, 16);
+    // Cross meridian arc
+    drawGlowArc(gfx, cx, cy, r * 0.3, r, color, tangentAngle + Math.PI / 2,
+      outwardAngle - tangentAngle - Math.PI,
+      outwardAngle - tangentAngle, 16);
+    // Vertical meridian arc
+    drawGlowArc(gfx, cx, cy, r * 0.3, r, color, radialAngle,
+      outwardAngle - radialAngle - Math.PI / 2,
+      outwardAngle - radialAngle + Math.PI / 2, 16);
 
-  drawGlowCircle(gfx, cx, cy, r, color);
+    // Tangent direction for the arrow (perpendicular to radial)
+    const rx = cx - CONFIG.CENTER_X;
+    const ry = cy - CONFIG.CENTER_Y;
+    const dist = Math.sqrt(rx * rx + ry * ry) || 1;
+    const tx = (-ry / dist) * spinDir;
+    const ty = (rx / dist) * spinDir;
+    const arrowAngle = Math.atan2(ty, tx);
 
-  // ----------------------------
-  // MASK INTERIOR
-  // ----------------------------
+    // Arrow stem from orb edge outward
+    const stemX = cx + tx * r;
+    const stemY = cy + ty * r;
+    const tipX = cx + tx * (r + size * 0.28);
+    const tipY = cy + ty * (r + size * 0.28);
+    drawGlowLine(gfx, stemX, stemY, tipX, tipY, color);
 
-  fillMaskCircle(maskGfx, cx, cy, r * 0.92);
-
-  // ----------------------------
-  // MERIDIANS (FULL, STABLE)
-  // ----------------------------
-
-  drawGlowEllipse(
-    gfx,
-    cx, cy,
-    r, r * 0.35,
-    tangent,
-    color
-  );
-
-  drawGlowEllipse(
-    gfx,
-    cx, cy,
-    r * 0.35, r,
-    radial,
-    color
-  );
-}
-
+    // Arrowhead barbs
+    const barbLen = size * 0.16;
+    const barbAngle = Math.PI * 0.75;
+    drawGlowLine(gfx, tipX, tipY,
+      tipX + Math.cos(arrowAngle + barbAngle) * barbLen,
+      tipY + Math.sin(arrowAngle + barbAngle) * barbLen, color);
+    drawGlowLine(gfx, tipX, tipY,
+      tipX + Math.cos(arrowAngle - barbAngle) * barbLen,
+      tipY + Math.sin(arrowAngle - barbAngle) * barbLen, color);
+  }
 
   _drawPhaseEnemy(gfx, maskGfx, cx, cy, size, enemy, dt) {
     const color = enemy.hitFlash > 0 ? 0xffffff :
@@ -1127,7 +1173,7 @@ _drawTank(gfx, maskGfx, lx, ly, rx, ry, size, hp, hitSide) {
     const fO2 = this.geometry.getVertexLerp(depth, nextVertex, rotAngle);
     if (!fO1 || !fO2) return;
     const fScale = this.geometry.getScaleLerp(depth);
-    const fH = CONFIG.WALL_HEIGHT * fScale * 0.98; // Slightly smaller than wireframe
+    const fH = CONFIG.WALL_HEIGHT * fScale * 1.15; // 15% taller to cover glow bleed
     const fP = this._wallPerp(fO1, fO2, fH);
     const fI1 = { x: fO1.x + fP.x, y: fO1.y + fP.y };
     const fI2 = { x: fO2.x + fP.x, y: fO2.y + fP.y };
@@ -1136,7 +1182,7 @@ _drawTank(gfx, maskGfx, lx, ly, rx, ry, size, hp, hitSide) {
     const bO1 = this.geometry.getVertexAtRadius(backDepth, visualLane, rotAngle, 1.0);
     const bO2 = this.geometry.getVertexAtRadius(backDepth, nextVertex, rotAngle, 1.0);
     const bScale = this.geometry.getScaleLerp(backDepth);
-    const bH = CONFIG.WALL_HEIGHT * bScale * 0.98; // Slightly smaller than wireframe
+    const bH = CONFIG.WALL_HEIGHT * bScale * 1.15; // 15% taller to cover glow bleed
     const bP = this._wallPerp(bO1, bO2, bH);
     const bI1 = { x: bO1.x + bP.x, y: bO1.y + bP.y };
     const bI2 = { x: bO2.x + bP.x, y: bO2.y + bP.y };
@@ -1161,7 +1207,6 @@ _drawTank(gfx, maskGfx, lx, ly, rx, ry, size, hp, hitSide) {
     const fO2 = this.geometry.getVertexLerp(depth, nextVertex, rotAngle);
     if (!fO1 || !fO2) return;
     const fScale = this.geometry.getScaleLerp(depth);
-    // No expansion - exact wireframe dimensions
     const fH = CONFIG.WALL_HEIGHT * fScale;
     const fP = this._wallPerp(fO1, fO2, fH);
     const fI1 = { x: fO1.x + fP.x, y: fO1.y + fP.y };
@@ -1173,7 +1218,7 @@ _drawTank(gfx, maskGfx, lx, ly, rx, ry, size, hp, hitSide) {
     const bP = this._wallPerp(bO1, bO2, bH);
     const bI1 = { x: bO1.x + bP.x, y: bO1.y + bP.y };
     const bI2 = { x: bO2.x + bP.x, y: bO2.y + bP.y };
-    // Draw fully opaque black fill (normal blend) to exactly block entities behind wall
+    // Draw opaque black fill (normal blend) to block entities behind wall
     gfx.setBlendMode(Phaser.BlendModes.NORMAL);
     gfx.fillStyle(0x000000, 1.0);
     gfx.beginPath();
@@ -1207,15 +1252,22 @@ _drawTank(gfx, maskGfx, lx, ly, rx, ry, size, hp, hitSide) {
     const bI1 = { x: bO1.x + bP.x, y: bO1.y + bP.y };
     const bI2 = { x: bO2.x + bP.x, y: bO2.y + bP.y };
     const c = color || CONFIG.COLORS.WALL;
+    // Dim the color by 50% for back edge to reduce additive overlap brightness
+    const r = (c >> 16) & 0xff;
+    const g = (c >> 8) & 0xff;
+    const b = c & 0xff;
+    const dimC = ((r >> 1) << 16) | ((g >> 1) << 8) | (b >> 1);
 
-    // All edges at full brightness
+    // Front face rectangle (full brightness)
     drawGlowLine(gfx, fO1.x, fO1.y, fO2.x, fO2.y, c);
     drawGlowLine(gfx, fO2.x, fO2.y, fI2.x, fI2.y, c);
     drawGlowLine(gfx, fI2.x, fI2.y, fI1.x, fI1.y, c);
     drawGlowLine(gfx, fI1.x, fI1.y, fO1.x, fO1.y, c);
+    // Depth lines (full brightness)
     drawGlowLine(gfx, fI1.x, fI1.y, bI1.x, bI1.y, c);
     drawGlowLine(gfx, fI2.x, fI2.y, bI2.x, bI2.y, c);
-    drawGlowLine(gfx, bI1.x, bI1.y, bI2.x, bI2.y, c);
+    // Back edge (dimmed to reduce tunnel overlap brightness)
+    drawGlowLine(gfx, bI1.x, bI1.y, bI2.x, bI2.y, dimC);
   }
 
   _drawDoubleWallMask(maskGfx, depth, visualLane1, visualLane2, rotAngle) {
@@ -1337,9 +1389,10 @@ _drawTank(gfx, maskGfx, lx, ly, rx, ry, size, hp, hitSide) {
       const lRadialAngle = Math.atan2(ly - CONFIG.CENTER_Y, lx - CONFIG.CENTER_X);
       drawGlowCircle(gfx, lx, ly, ballR, color);
       const lTangentAngle = lRadialAngle + Math.PI / 2;
-      drawGlowEllipse(gfx, lx, ly, ballR, ballR * 0.3, color, lTangentAngle);
-      drawGlowEllipse(gfx, lx, ly, ballR * 0.3, ballR, color, lTangentAngle);
-      drawGlowArc(gfx, lx, ly, ballR * 0.3, ballR, color, lRadialAngle,
+      // Three meridians, each tested for front-facing by dot product
+      drawFrontFacingArc(gfx, lx, ly, ballR, ballR * 0.3, color, lTangentAngle, -Math.PI / 2, Math.PI / 2, 16);
+      drawFrontFacingArc(gfx, lx, ly, ballR * 0.3, ballR, color, lTangentAngle, -Math.PI / 2, Math.PI / 2, 16);
+      drawFrontFacingArc(gfx, lx, ly, ballR * 0.3, ballR, color, lRadialAngle,
         lOutwardAngle - lRadialAngle - Math.PI / 2,
         lOutwardAngle - lRadialAngle + Math.PI / 2, 16);
     }
@@ -1349,9 +1402,10 @@ _drawTank(gfx, maskGfx, lx, ly, rx, ry, size, hp, hitSide) {
       const rRadialAngle = Math.atan2(ry - CONFIG.CENTER_Y, rx - CONFIG.CENTER_X);
       drawGlowCircle(gfx, rx, ry, ballR, color);
       const rTangentAngle = rRadialAngle + Math.PI / 2;
-      drawGlowEllipse(gfx, rx, ry, ballR, ballR * 0.3, color, rTangentAngle);
-      drawGlowEllipse(gfx, rx, ry, ballR * 0.3, ballR, color, rTangentAngle);
-      drawGlowArc(gfx, rx, ry, ballR * 0.3, ballR, color, rRadialAngle,
+      // Three meridians, each tested for front-facing by dot product
+      drawFrontFacingArc(gfx, rx, ry, ballR, ballR * 0.3, color, rTangentAngle, -Math.PI / 2, Math.PI / 2, 16);
+      drawFrontFacingArc(gfx, rx, ry, ballR * 0.3, ballR, color, rTangentAngle, -Math.PI / 2, Math.PI / 2, 16);
+      drawFrontFacingArc(gfx, rx, ry, ballR * 0.3, ballR, color, rRadialAngle,
         rOutwardAngle - rRadialAngle - Math.PI / 2,
         rOutwardAngle - rRadialAngle + Math.PI / 2, 16);
     }
@@ -1371,9 +1425,10 @@ _drawTank(gfx, maskGfx, lx, ly, rx, ry, size, hp, hitSide) {
     const radialAngle = Math.atan2(cy - CONFIG.CENTER_Y, cx - CONFIG.CENTER_X);
     drawGlowCircle(gfx, cx, cy, r, color);
     const tangentAngle = radialAngle + Math.PI / 2;
-    drawGlowEllipse(gfx, cx, cy, r, r * 0.3, color, tangentAngle);
-    drawGlowEllipse(gfx, cx, cy, r * 0.3, r, color, tangentAngle);
-    drawGlowArc(gfx, cx, cy, r * 0.3, r, color, radialAngle,
+    // Three meridians, each tested for front-facing by dot product
+    drawFrontFacingArc(gfx, cx, cy, r, r * 0.3, color, tangentAngle, -Math.PI / 2, Math.PI / 2, 16);
+    drawFrontFacingArc(gfx, cx, cy, r * 0.3, r, color, tangentAngle, -Math.PI / 2, Math.PI / 2, 16);
+    drawFrontFacingArc(gfx, cx, cy, r * 0.3, r, color, radialAngle,
       outwardAngle - radialAngle - Math.PI / 2,
       outwardAngle - radialAngle + Math.PI / 2, 16);
     const NUM_SPIKES = 8;
@@ -1442,9 +1497,10 @@ _drawTank(gfx, maskGfx, lx, ly, rx, ry, size, hp, hitSide) {
     const radialAngle = Math.atan2(cy - CONFIG.CENTER_Y, cx - CONFIG.CENTER_X);
     drawGlowCircle(gfx, cx, cy, r, color);
     const tangentAngle = radialAngle + Math.PI / 2;
-    drawGlowEllipse(gfx, cx, cy, r, r * 0.3, color, tangentAngle);
-    drawGlowEllipse(gfx, cx, cy, r * 0.3, r, color, tangentAngle);
-    drawGlowArc(gfx, cx, cy, r * 0.3, r, color, radialAngle,
+    // Three meridians, each tested for front-facing by dot product
+    drawFrontFacingArc(gfx, cx, cy, r, r * 0.3, color, tangentAngle, -Math.PI / 2, Math.PI / 2, 16);
+    drawFrontFacingArc(gfx, cx, cy, r * 0.3, r, color, tangentAngle, -Math.PI / 2, Math.PI / 2, 16);
+    drawFrontFacingArc(gfx, cx, cy, r * 0.3, r, color, radialAngle,
       outwardAngle - radialAngle - Math.PI / 2,
       outwardAngle - radialAngle + Math.PI / 2, 16);
     const rx = cx - CONFIG.CENTER_X;

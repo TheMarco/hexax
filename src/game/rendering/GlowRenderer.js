@@ -4,12 +4,12 @@
  */
 
 const GLOW_PASSES = [
-  { width: 10, alpha: 0.05 },  // wide outer glow, subtle
-  { width: 5, alpha: 0.15 },   // mid-glow
+  { width: 11, alpha: 0.07 },  // wide outer glow, slightly enhanced
+  { width: 5.5, alpha: 0.2 },  // mid-glow, slightly stronger
   { width: 2, alpha: 1.0 },    // sharp core
 ];
 
-export function drawGlowLine(gfx, x1, y1, x2, y2, color, mask = false) {
+export function drawGlowLine(gfx, x1, y1, x2, y2, color, mask = false, passes = GLOW_PASSES) {
   // Draw thick black line first (normal blend) to block what's behind
   if (mask) {
     const prevBlend = gfx.defaultBlendMode;
@@ -22,7 +22,7 @@ export function drawGlowLine(gfx, x1, y1, x2, y2, color, mask = false) {
     gfx.setBlendMode(prevBlend); // back to ADD
   }
 
-  for (const pass of GLOW_PASSES) {
+  for (const pass of passes) {
     gfx.lineStyle(pass.width, color, pass.alpha);
     gfx.beginPath();
     gfx.moveTo(x1, y1);
