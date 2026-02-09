@@ -12,6 +12,7 @@ export class GameState {
     this.wallHits = 0;
     this.scoreMultiplier = 1;
     this.gameOver = false;
+    this.newHighScore = false;
     this.fireCooldown = 0;
     this.tickCount = 0;
     this.elapsedMs = 0;

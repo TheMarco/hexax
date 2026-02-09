@@ -12,6 +12,7 @@ import { SpawnSystem } from '../systems/SpawnSystem.js';
 import { HUD } from '../hud/HUD.js';
 import { ExplosionRenderer } from '../rendering/ExplosionRenderer.js';
 import { TunnelExplosionRenderer } from '../rendering/TunnelExplosionRenderer.js';
+import { HighScore } from '../HighScore.js';
 
 const STEP_ANGLE = Math.PI / 3; // 60° per lane
 const ROT_DURATION_MS = 150;    // total time for smooth 60° rotation
@@ -98,6 +99,8 @@ export class GameScene extends Phaser.Scene {
       }
     };
     this.tickSystem.onGameOver = () => {
+      // Check if new high score
+      this.state.newHighScore = HighScore.check(this.state.score);
       this.tunnelExplosion.trigger();
       this.soundEngine.playTunnelExplosion();
       this.soundEngine.stopMusic();

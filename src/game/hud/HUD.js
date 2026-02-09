@@ -145,7 +145,11 @@ export class HUD {
     }
 
     if (this.state.gameOver) {
-      this.gameOverText.setText('GAME OVER\nPress Fire to Restart');
+      if (this.state.newHighScore) {
+        this.gameOverText.setText('GAME OVER\n\nNEW HIGH SCORE!\n\nPress Fire to Restart');
+      } else {
+        this.gameOverText.setText('GAME OVER\nPress Fire to Restart');
+      }
     } else {
       this.gameOverText.setText('');
     }

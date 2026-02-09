@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { CONFIG } from '../config.js';
+import { HighScore } from '../HighScore.js';
 
 export class TitleScene extends Phaser.Scene {
   constructor() {
@@ -62,6 +63,15 @@ export class TitleScene extends Phaser.Scene {
     this.logo = this.add.image(CONFIG.CENTER_X, CONFIG.CENTER_Y - 100, 'logo');
     this.logo.setScale(logoScale);
     this.logo.setDepth(10);
+
+    // High Score display (top of screen)
+    const highScore = HighScore.get();
+    this.highScoreText = this.add.text(CONFIG.CENTER_X, 40, `HIGH SCORE: ${highScore}`, {
+      fontFamily: 'Hyperspace',
+      fontSize: '32px',
+      color: '#7cffb2',
+      align: 'center',
+    }).setOrigin(0.5).setDepth(10);
 
     // Press Fire text (pulsing)
     this.pressFireText = this.add.text(CONFIG.CENTER_X, CONFIG.CENTER_Y + 100, 'PRESS FIRE TO START', {
