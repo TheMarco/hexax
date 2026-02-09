@@ -17,6 +17,10 @@ rm -rf .vite
 echo "Building fresh production version..."
 npm run build
 
+# For iOS: Replace index.html with game.html (so iOS gets the game, not the promo site)
+echo "Preparing iOS build (swapping game.html → index.html)..."
+cp dist/game.html dist/index.html
+
 # Sync with Capacitor (copies dist to iOS project)
 echo "Syncing with Capacitor..."
 npx cap sync ios

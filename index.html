@@ -2,168 +2,646 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>HEXAX</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- Primary Meta Tags -->
+  <title>HEXAX - Pure Arcade Tunnel Shooter | Retro Vector Graphics Game | No Ads, No IAP</title>
+  <meta name="title" content="HEXAX - Pure Arcade Tunnel Shooter | Retro Vector Graphics Game" />
+  <meta name="description" content="Experience HEXAX, a skill-based arcade tunnel shooter with authentic 1980s vector graphics. No ads, no in-app purchases, no subscriptions. Rotate the hexagonal tunnel, dodge enemies, and master precision timing. Coming to iOS, macOS & Android. Play free web demo now." />
+  <meta name="keywords" content="arcade games, tunnel shooter, vector graphics game, retro arcade, hexagonal tunnel, tempest style game, skill based game, no pay to win, classic arcade, 1980s arcade, vector display, rotation mechanics, precision arcade, indie game, web game, iOS game, one time purchase game, no ads game, no IAP, arcade shooter" />
+  <meta name="author" content="AI & Design Game Studios" />
+  <meta name="robots" content="index, follow" />
+  <meta name="language" content="English" />
+  <meta name="revisit-after" content="7 days" />
+  <meta name="theme-color" content="#000000" />
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://hexax.game/" />
+  <meta property="og:title" content="HEXAX - Pure Arcade Tunnel Shooter with Retro Vector Graphics" />
+  <meta property="og:description" content="Rotate the hexagonal tunnel. Dodge enemies. Master precision timing. No ads, no IAP, no subscriptions. Coming to iOS, macOS & Android. Play free now." />
+  <meta property="og:image" content="https://hexax.game/sitelogo.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:site_name" content="HEXAX" />
+
+  <!-- Twitter -->
+  <meta property="twitter:card" content="summary_large_image" />
+  <meta property="twitter:url" content="https://hexax.game/" />
+  <meta property="twitter:title" content="HEXAX - Pure Arcade Tunnel Shooter | No Ads, No IAP" />
+  <meta property="twitter:description" content="Skill-based arcade game with authentic 1980s vector graphics. Rotate the tunnel, survive, and master precision. Play free web demo now." />
+  <meta property="twitter:image" content="https://hexax.game/sitelogo.png" />
+
+  <!-- Canonical URL -->
+  <link rel="canonical" href="https://hexax.game/" />
+
+  <!-- Structured Data / JSON-LD for Rich Snippets -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "VideoGame",
+    "name": "HEXAX",
+    "alternateName": "Hexax Arcade Game",
+    "url": "https://hexax.game/",
+    "logo": "https://hexax.game/sitelogo.png",
+    "description": "HEXAX is a skill-based arcade tunnel shooter with authentic 1980s vector graphics. Rotate the hexagonal tunnel, dodge enemies, and master precision timing. No ads, no in-app purchases, no subscriptions.",
+    "genre": ["Arcade", "Action", "Shooter", "Indie"],
+    "gamePlatform": ["Web Browser", "iOS", "macOS", "Android"],
+    "operatingSystem": "Web Browser, iOS, iPadOS, macOS, Android",
+    "applicationCategory": "Game",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD",
+      "availability": "https://schema.org/InStock",
+      "url": "https://hexax.game/game.html"
+    },
+    "aggregateRating": {
+      "@type": "AggregateRating",
+      "ratingValue": "5",
+      "ratingCount": "1",
+      "bestRating": "5",
+      "worstRating": "1"
+    },
+    "publisher": {
+      "@type": "Organization",
+      "name": "AI & Design Game Studios",
+      "url": "https://hexax.game/"
+    },
+    "screenshot": "https://hexax.game/sitelogo.png",
+    "trailer": {
+      "@type": "VideoObject",
+      "name": "HEXAX Gameplay Trailer",
+      "description": "Watch HEXAX gameplay featuring retro vector graphics and intense tunnel shooter action",
+      "thumbnailUrl": "https://hexax.game/sitelogo.png",
+      "uploadDate": "2026-02-08",
+      "contentUrl": "https://www.youtube.com/watch?v=miaDU7eg5qE",
+      "embedUrl": "https://www.youtube.com/embed/miaDU7eg5qE"
+    },
+    "gameTip": "Your ship never moves - rotate the tunnel to align shots and dodge threats. Think ahead and commit early.",
+    "characterAttribute": ["Precision", "Anticipation", "Flow"],
+    "playMode": "SinglePlayer"
+  }
+  </script>
   <style>
     @font-face {
       font-family: 'Hyperspace';
       src: url('/fonts/hyperspace.ttf') format('truetype');
-      font-display: block;
+      font-display: swap;
     }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body {
+
+    * {
       margin: 0;
       padding: 0;
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
       background: #000;
-      overflow: hidden;
+      color: #7cffb2;
+      font-family: 'Hyperspace', monospace;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* Animated scan line overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
       width: 100%;
       height: 100%;
+      background: linear-gradient(
+        to bottom,
+        transparent 50%,
+        rgba(0, 0, 0, 0.3) 50%
+      );
+      background-size: 100% 4px;
+      pointer-events: none;
+      z-index: 9999;
+      animation: scanline 8s linear infinite;
+    }
+
+    @keyframes scanline {
+      0% { transform: translateY(0); }
+      100% { transform: translateY(4px); }
+    }
+
+    /* Glow effect for headers and links */
+    .glow {
+      text-shadow:
+        0 0 10px rgba(124, 255, 178, 0.8),
+        0 0 20px rgba(124, 255, 178, 0.5),
+        0 0 30px rgba(124, 255, 178, 0.3);
+    }
+
+    /* Container */
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 0 30px;
+    }
+
+    /* Hero Section */
+    .hero {
+      min-height: 100vh;
       display: flex;
       flex-direction: column;
       justify-content: center;
       align-items: center;
+      text-align: center;
+      position: relative;
+      padding: 60px 30px;
     }
-    ::-webkit-scrollbar { display: none; }
 
-    /* === Desktop layout === */
-    #game-container {
+    .logo {
+      width: 80%;
+      max-width: 600px;
+      margin-bottom: 60px;
+      animation: pulse 3s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.85; }
+    }
+
+    .hero h1 {
+      font-size: 2.5rem;
+      margin-bottom: 20px;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+    }
+
+    .hero p {
+      font-size: 1.1rem;
+      line-height: 1.8;
+      margin-bottom: 15px;
+      max-width: 700px;
+    }
+
+    .hero .tagline {
+      font-size: 1.3rem;
+      margin: 40px 0 50px;
+      opacity: 0.9;
+    }
+
+    /* CTA Buttons */
+    .cta-group {
       display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
       justify-content: center;
-      align-items: center;
-      max-width: 100vw;
+      margin-top: 40px;
     }
-    #game-container canvas {
-      display: block;
-      image-rendering: -moz-crisp-edges;
-      image-rendering: -webkit-crisp-edges;
-      image-rendering: pixelated;
-      image-rendering: crisp-edges;
-    }
-    #shader-toggle {
-      display: flex;
-      justify-content: center;
-      gap: 6px;
-      margin-top: 10px;
-    }
-    #shader-toggle button {
-      background: transparent;
-      border: 1px solid #7cffb2;
+
+    .btn {
+      display: inline-block;
+      padding: 18px 40px;
+      border: 2px solid #7cffb2;
       color: #7cffb2;
-      font-family: 'Hyperspace', monospace;
-      font-size: 13px;
-      padding: 3px 18px;
-      cursor: pointer;
-      letter-spacing: 1px;
-      transition: background 0.15s, color 0.15s;
+      text-decoration: none;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      font-size: 1rem;
+      transition: all 0.3s;
+      position: relative;
+      overflow: hidden;
     }
-    #shader-toggle button:hover {
-      background: rgba(124, 255, 178, 0.15);
+
+    .btn::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: rgba(124, 255, 178, 0.2);
+      transition: left 0.3s;
     }
-    #shader-toggle button.active {
+
+    .btn:hover::before {
+      left: 0;
+    }
+
+    .btn:hover {
+      background: rgba(124, 255, 178, 0.1);
+      box-shadow: 0 0 20px rgba(124, 255, 178, 0.5);
+    }
+
+    .btn-primary {
       background: #7cffb2;
       color: #000;
+      font-weight: bold;
     }
 
-    /* === Mobile cabinet layout === */
-    #mobile-cabinet {
-      display: none;
+    .btn-primary:hover {
+      background: #a0ffc8;
+    }
+
+    /* Video Section */
+    .video-section {
+      padding: 100px 0;
+      text-align: center;
+    }
+
+    .video-container {
+      max-width: 800px;
+      margin: 60px auto 0;
+      border: 2px solid #7cffb2;
+      box-shadow: 0 0 40px rgba(124, 255, 178, 0.3);
       position: relative;
-      width: 100vw;
-      -webkit-user-select: none;
-      user-select: none;
     }
-    #mobile-cabinet img {
+
+    .video-container iframe {
       width: 100%;
+      aspect-ratio: 16 / 9;
       display: block;
-    }
-    /* Screen area where the game canvas goes */
-    #cabinet-screen {
-      position: absolute;
-      top: 17.4%;
-      left: 3.6%;
-      width: 92.8%;
-    }
-    #cabinet-screen canvas {
-      width: 100% !important;
-      height: auto !important;
-      display: block;
-      image-rendering: -moz-crisp-edges;
-      image-rendering: -webkit-crisp-edges;
-      image-rendering: pixelated;
-      image-rendering: crisp-edges;
-    }
-    /* Invisible touch zones over backdrop buttons */
-    .touch-zone {
-      position: absolute;
-      touch-action: manipulation;
-      -webkit-tap-highlight-color: transparent;
-      z-index: 10;
-      cursor: pointer;
-    }
-    .touch-zone:active {
-      background: rgba(124, 255, 178, 0.1);
-    }
-    #touch-display {
-      top: 66.5%;
-      left: 46%;
-      width: 14%;
-      height: 6.5%;
-    }
-    #touch-left {
-      top: 78%;
-      left: 3.5%;
-      width: 27.5%;
-      height: 18%;
-    }
-    #touch-fire {
-      top: 78%;
-      left: 34%;
-      width: 32%;
-      height: 18%;
-    }
-    #touch-right {
-      top: 78%;
-      left: 68.5%;
-      width: 28%;
-      height: 18%;
+      background: #000;
     }
 
-    /* When mobile cabinet is active, center vertically or scroll if too tall */
-    body.mobile-mode {
-      justify-content: center;
-      overflow-y: auto;
+    /* Content Sections */
+    section {
+      padding: 120px 0;
+      border-top: 1px solid rgba(124, 255, 178, 0.2);
     }
 
-    /* iPad / wider screens: scale cabinet by height instead of width */
-    @media (min-aspect-ratio: 9/16) {
-      #mobile-cabinet {
-        width: auto;
-        height: 100vh;
-      }
-      #mobile-cabinet img {
-        width: auto;
-        height: 100%;
-      }
+    h2 {
+      font-size: 3rem;
+      text-transform: uppercase;
+      letter-spacing: 6px;
+      margin-bottom: 60px;
+      text-align: center;
+    }
+
+    h3 {
+      font-size: 1.8rem;
+      margin-bottom: 30px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+    }
+
+    p {
+      font-size: 1.05rem;
+      line-height: 1.9;
+      margin-bottom: 20px;
+      opacity: 0.95;
+    }
+
+    ul {
+      list-style: none;
+      padding-left: 0;
+    }
+
+    ul li {
+      padding: 12px 0;
+      padding-left: 30px;
+      position: relative;
+      font-size: 1.05rem;
+    }
+
+    ul li::before {
+      content: '▸';
+      position: absolute;
+      left: 0;
+      color: #7cffb2;
+    }
+
+    /* Feature Grid */
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 40px;
+      margin-top: 60px;
+    }
+
+    .feature {
+      border: 1px solid rgba(124, 255, 178, 0.3);
+      padding: 30px;
+      transition: all 0.3s;
+    }
+
+    .feature:hover {
+      border-color: #7cffb2;
+      box-shadow: 0 0 20px rgba(124, 255, 178, 0.3);
+      transform: translateY(-5px);
+    }
+
+    .feature h4 {
+      font-size: 1.3rem;
+      margin-bottom: 15px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    /* What It Isn't Section */
+    .anti-list {
+      text-align: center;
+      margin: 60px 0;
+    }
+
+    .anti-list ul {
+      display: inline-block;
+      text-align: left;
+    }
+
+    .anti-list li {
+      font-size: 1.2rem;
+      padding: 15px 0;
+    }
+
+    .anti-list li::before {
+      content: '✗';
+      color: #ff4444;
+      font-size: 1.4rem;
+    }
+
+    /* Footer CTA */
+    .footer-cta {
+      text-align: center;
+      padding: 120px 30px;
+      background: linear-gradient(180deg, transparent, rgba(124, 255, 178, 0.05));
+    }
+
+    .footer-cta h2 {
+      font-size: 4rem;
+      margin-bottom: 30px;
+    }
+
+    .footer-cta .taglines {
+      margin: 40px 0 60px;
+      font-size: 1.2rem;
+      line-height: 2;
+    }
+
+    /* Footer */
+    footer {
+      padding: 40px 0;
+      text-align: center;
+      border-top: 1px solid rgba(124, 255, 178, 0.2);
+      opacity: 0.6;
+      font-size: 0.9rem;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .hero h1 { font-size: 1.8rem; line-height: 1.3; }
+      h2 { font-size: 2rem; letter-spacing: 3px; }
+      h3 { font-size: 1.4rem; }
+      .footer-cta h2 { font-size: 2.5rem; }
+      .cta-group { flex-direction: column; }
+      .btn { width: 100%; }
+      section, article { padding: 80px 0; }
+      .container { padding: 0 20px; }
     }
   </style>
 </head>
 <body>
-  <!-- Mobile cabinet (hidden on desktop) -->
-  <div id="mobile-cabinet">
-    <img src="/backdropnew.png" alt="" />
-    <div id="cabinet-screen"></div>
-    <div id="touch-display" class="touch-zone"></div>
-    <div id="touch-left" class="touch-zone"></div>
-    <div id="touch-fire" class="touch-zone"></div>
-    <div id="touch-right" class="touch-zone"></div>
-  </div>
 
-  <!-- Desktop layout -->
-  <div id="game-container"></div>
-  <div id="shader-toggle">
-    <button data-shader="crt">CRT</button>
-    <button data-shader="vector">VECTOR</button>
-  </div>
-  <script type="module" src="/src/main.js"></script>
+  <!-- HERO SECTION -->
+  <header class="hero" role="banner">
+    <img src="/sitelogo.png" alt="HEXAX - Retro Vector Arcade Tunnel Shooter Game Logo" class="logo" />
+
+    <h1 class="glow">HEXAX - Pure Arcade Tunnel Shooter<br>No Ads. Just Skill.</h1>
+
+    <p>A modern retro arcade game with authentic 1980s vector graphics. Built on anticipation, precision, and flow.<br>
+    Rotate the hexagonal tunnel. Dodge enemies. Survive by thinking ahead.</p>
+
+    <p class="tagline"><strong>Buy once. Own it forever. No subscriptions. No in-app purchases.</strong></p>
+
+    <nav class="cta-group" role="navigation" aria-label="Main actions">
+      <a href="/game.html" class="btn btn-primary glow" title="Play HEXAX free arcade game in your browser">PLAY FREE WEB DEMO</a>
+      <a href="#platforms" class="btn" title="View available platforms for HEXAX">Coming to iOS, macOS & Android</a>
+    </nav>
+  </header>
+
+  <!-- VIDEO SECTION -->
+  <section class="video-section" id="gameplay-video" aria-labelledby="video-heading">
+    <div class="container">
+      <h2 class="glow" id="video-heading">Watch HEXAX Gameplay - Retro Vector Arcade Action</h2>
+      <div class="video-container">
+        <iframe
+          src="https://www.youtube.com/embed/miaDU7eg5qE"
+          title="HEXAX Gameplay Trailer - Retro Vector Graphics Arcade Tunnel Shooter"
+          frameborder="0"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowfullscreen
+          loading="lazy">
+        </iframe>
+      </div>
+    </div>
+  </section>
+
+  <!-- WHAT IT IS -->
+  <article id="about" aria-labelledby="about-heading">
+    <div class="container">
+      <h2 class="glow" id="about-heading">A Real Skill-Based Arcade Game - No Pay to Win</h2>
+
+      <p><strong>HEXAX is a focused, skill-first arcade tunnel shooter</strong> where the rules are clear, the feedback is immediate, and every mistake is earned. Experience authentic arcade gameplay inspired by classic 1980s vector graphics games like Tempest.</p>
+
+      <p style="margin-top: 40px; font-size: 1.2rem;">
+        <strong>No upgrades to chase. No grinding. No pay-to-win mechanics.<br>
+        No currencies. No timers. No ads.<br>
+        No systems designed to slow you down or extract money.</strong>
+      </p>
+
+      <p style="margin-top: 40px;"><strong>Pure arcade skill:</strong> You play. You learn. You master. You get better.</p>
+    </div>
+  </article>
+
+  <!-- HOW IT PLAYS -->
+  <article id="gameplay" aria-labelledby="gameplay-heading">
+    <div class="container">
+      <h2 class="glow" id="gameplay-heading">Hexagonal Tunnel Shooter Gameplay - Rotation Mechanics</h2>
+
+      <p><strong>Fly through a glowing hexagonal tunnel</strong> divided into six walls as a tunnel shooter arcade game.<br>
+      Enemies and hazards approach from the distance, one segment at a time, testing your reflexes and anticipation.</p>
+
+      <p style="margin-top: 40px;"><strong>Unique rotation-based gameplay:</strong> Your ship never moves.</p>
+
+      <p>Instead, you <strong>rotate the entire tunnel</strong> left or right in precise 60-degree steps:</p>
+
+      <ul style="margin: 30px 0;">
+        <li>to line up shots</li>
+        <li>to escape incoming danger</li>
+        <li>to commit to the right decision before it's too late</li>
+      </ul>
+
+      <p>Some threats test timing.<br>
+      Others test prediction.<br>
+      Walls become lethal terrain.</p>
+
+      <p style="margin-top: 40px;"><strong>Survival strategy:</strong> Master the hexagonal tunnel layout, understand enemy patterns, and commit to decisions before it's too late. Every rotation matters in this precision arcade game.</p>
+    </div>
+  </article>
+
+  <!-- DESIGNED WITH DISCIPLINE -->
+  <article id="design" aria-labelledby="design-heading">
+    <div class="container">
+      <h2 class="glow" id="design-heading">Classic Arcade Game Design Philosophy</h2>
+      <h3>Built as if it could have existed in the early 1980s arcade era.</h3>
+
+      <p><strong>HEXAX follows the discipline of classic arcade games</strong> like Tempest, Battlezone, and Star Wars arcade - focused, fair, and skill-rewarding:</p>
+
+      <div class="feature-grid">
+        <div class="feature">
+          <h4>Clear Systems</h4>
+          <p>Every rule is consistent and learnable.</p>
+        </div>
+        <div class="feature">
+          <h4>Readable Motion</h4>
+          <p>You always know what's happening.</p>
+        </div>
+        <div class="feature">
+          <h4>No Hidden Mechanics</h4>
+          <p>Everything is visible on screen.</p>
+        </div>
+        <div class="feature">
+          <h4>No Explanations Needed</h4>
+          <p>Pick it up and play.</p>
+        </div>
+      </div>
+
+      <p style="margin-top: 60px; text-align: center; font-size: 1.2rem;">
+        <strong>The challenge isn't memorization — it's skill mastery and pattern recognition.</strong>
+      </p>
+    </div>
+  </article>
+
+  <!-- VISUAL IDENTITY -->
+  <article id="graphics" aria-labelledby="graphics-heading">
+    <div class="container">
+      <h2 class="glow" id="graphics-heading">Authentic 1980s Vector Graphics & CRT Display Modes</h2>
+
+      <p><strong>HEXAX features authentic vector graphics</strong> inspired by classic 1980s arcade displays like Tempest and Asteroids. Choose between two retro visual modes:</p>
+
+      <div class="feature-grid" style="margin-top: 60px;">
+        <div class="feature">
+          <h4>Vector Display Mode</h4>
+          <p>Pure monochrome lines. Sharp contrast. Zero distractions.</p>
+        </div>
+        <div class="feature">
+          <h4>CRT Mode</h4>
+          <p>Glowing color, bloom, and warmth — the arcade feel, reimagined.</p>
+        </div>
+      </div>
+
+      <p style="margin-top: 60px; text-align: center;">
+        <strong>Both vector display modes play identically.<br>
+        Choose authentic monochrome vector or glowing CRT arcade aesthetics.</strong>
+      </p>
+    </div>
+  </article>
+
+  <!-- WHAT HEXAX ISN'T -->
+  <article id="no-ads" aria-labelledby="no-ads-heading">
+    <div class="container">
+      <h2 class="glow" id="no-ads-heading">No Ads, No IAP, No Subscriptions - Fair Gaming</h2>
+
+      <p style="text-align: center; font-size: 1.3rem; margin-bottom: 50px;">
+        <strong>HEXAX is not a free-to-play trap or pay-to-win scam.</strong><br>
+        No predatory monetization. Just honest arcade gaming.
+      </p>
+
+      <div class="anti-list">
+        <ul>
+          <li>no ads</li>
+          <li>no in-app purchases</li>
+          <li>no subscriptions</li>
+          <li>no currencies</li>
+          <li>no timers</li>
+          <li>no bait-and-switch</li>
+        </ul>
+      </div>
+
+      <p style="text-align: center; font-size: 1.2rem; margin-top: 60px;">
+        <strong>One-time purchase. Full game unlocked.<br>
+        No hidden costs. No subscription traps.<br><br>
+        Honest arcade gaming.</strong>
+      </p>
+    </div>
+  </article>
+
+  <!-- WHY IT EXISTS -->
+  <article id="philosophy" aria-labelledby="philosophy-heading">
+    <div class="container">
+      <h2 class="glow" id="philosophy-heading">Made for Players Who Value Fair Game Design</h2>
+
+      <p><strong>HEXAX was created by a passionate gamer</strong> for players who miss when games respected your time, skill, and wallet.</p>
+
+      <p style="margin-top: 40px;">Games where:</p>
+
+      <ul style="margin: 30px 0;">
+        <li>difficulty comes from design, not manipulation</li>
+        <li>failure teaches instead of punishing</li>
+        <li>clarity matters more than spectacle</li>
+      </ul>
+
+      <p style="margin-top: 40px; font-size: 1.2rem;">
+        <strong>If you value focus, challenge, and honest arcade design — HEXAX is built for you.</strong>
+      </p>
+    </div>
+  </article>
+
+  <!-- PLATFORMS -->
+  <article id="platforms" aria-labelledby="platforms-heading">
+    <div class="container">
+      <h2 class="glow" id="platforms-heading">Available Platforms - iOS, macOS, Android & Web</h2>
+
+      <div class="feature-grid" role="list">
+        <div class="feature" role="listitem">
+          <h4>Web Browser (Play Free Now)</h4>
+          <p>Play HEXAX instantly in your browser. No download, no installation. Works on Chrome, Firefox, Safari, Edge.</p>
+        </div>
+        <div class="feature" role="listitem">
+          <h4>iOS Game (Coming Soon)</h4>
+          <p>Universal iOS app for iPhone and iPad. One-time purchase, no subscriptions.</p>
+        </div>
+        <div class="feature" role="listitem">
+          <h4>macOS Game (Coming Soon)</h4>
+          <p>Native Apple Silicon and Intel Mac support. Available on Mac App Store.</p>
+        </div>
+        <div class="feature" role="listitem">
+          <h4>Android Game (Coming Later)</h4>
+          <p>Universal Android app for phones and tablets. Fair pricing, no ads.</p>
+        </div>
+      </div>
+    </div>
+  </article>
+
+  <!-- FINAL CTA -->
+  <section class="footer-cta" role="contentinfo">
+    <h2 class="glow">HEXAX - Pure Arcade Tunnel Shooter</h2>
+
+    <div class="taglines">
+      <p><strong>Authentic retro arcade gaming.</strong></p>
+      <p><strong>One-time purchase. No subscriptions.</strong></p>
+      <p><strong>No ads. No IAP. Just skill.</strong></p>
+    </div>
+
+    <nav class="cta-group" aria-label="Final call to action">
+      <a href="/game.html" class="btn btn-primary glow" title="Play HEXAX arcade game free in browser">PLAY FREE WEB DEMO NOW</a>
+    </nav>
+  </section>
+
+  <footer role="contentinfo">
+    <div class="container" style="max-width: 800px;">
+      <p><strong>&copy; 2026 AI & DESIGN GAME STUDIOS</strong></p>
+      <p style="margin-top: 15px; font-size: 0.85rem;">
+        <a href="/game.html" style="color: #7cffb2; text-decoration: none;" title="Play HEXAX game">Play Game</a> •
+        <a href="#gameplay-video" style="color: #7cffb2; text-decoration: none;" title="Watch gameplay video">Watch Gameplay</a> •
+        <a href="#platforms" style="color: #7cffb2; text-decoration: none;" title="View available platforms">Platforms</a>
+      </p>
+      <p style="margin-top: 15px; font-size: 0.8rem; opacity: 0.7;">
+        Keywords: arcade games, tunnel shooter, vector graphics, retro arcade, hexagonal tunnel, tempest style, skill-based game, no pay to win, classic arcade, 1980s arcade, rotation mechanics, precision arcade, indie game, iOS game, macOS game, Android game, web game, no ads, no IAP, one-time purchase
+      </p>
+    </div>
+  </footer>
+
 </body>
 </html>
