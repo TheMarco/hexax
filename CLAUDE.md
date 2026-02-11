@@ -62,7 +62,7 @@ src/
     ├── systems/
     │   ├── InputSystem.js           # FIFO input queue (max 4), rotations block until animation completes
     │   ├── TickSystem.js            # Two Phaser timers: enemyTimer (dynamic), bulletTimer (200ms)
-    │   ├── CollisionSystem.js       # bullet×wall deflect, bullet×enemy grid check, tank HP, bomb chain, heart heal
+    │   ├── CollisionSystem.js       # bullet×wall deflect, bullet×enemy grid check, deferred kills (ghost bullets), tank HP, bomb chain, heart heal
     │   └── SpawnSystem.js           # Weighted spawn with entity gating, wall density cap, pattern moments
     ├── rendering/
     │   ├── GlowRenderer.js          # drawGlowLine, drawGlowPolygon, drawGlowDiamond, drawGlowClaw, drawGlowCircle, drawGlowEllipse, drawGlowArc
@@ -230,17 +230,31 @@ Collision checks happen in order: walls → doublewalls → enemies.
 - `onWallDeflect` callback plays `hitwall.mp3`
 
 ### Bullet vs Enemy
-Grid-based — if `floor(bullet.depth) === enemy.depth && bullet.lane === enemy.lane`:
-- **Regular enemy**: kill both, +100 × multiplier, orange explosion
-- **Tank (not dead)**: kill bullet only, call `tank.hit()`, +50 × multiplier, blue explosion, tank persists
-- **Tank (killed)**: kill both, +200 × multiplier, blue explosion
+Grid-based detection — if `floor(bullet.depth) === enemy.depth && bullet.lane === enemy.lane` — but visually exact via lerp-aware resolution:
+- `resolve(bulletLerp, enemyLerp)` receives interpolation progress from both timers
+- Visual depths computed at collision time: `enemyVisualDepth = prevDepth + (depth - prevDepth) * enemyLerp`
+- Explosions spawn at interpolated visual positions, not grid cells
+
+**Deferred kills (ghost bullets)**: Most kills use a `pendingKills[]` system instead of instant destruction. The bullet's visual position at collision time is recorded (`ghostDepth`), and a ghost bullet visually advances toward the enemy at 10 segments/sec before the explosion triggers. This makes hits look spatially exact. Exceptions (instant kills): hearts, bombs, and tank first-hit — these need immediate visual feedback.
+
+**Hit outcomes:**
+- **Regular enemy**: deferred kill, +100 × multiplier, orange explosion
+- **Tank (not dead)**: kill bullet only, call `tank.hit()`, +50 × multiplier, instant blue explosion at destroyed ball (hitSide), tank persists
+- **Tank (killed)**: deferred kill via ghost bullet, +200 × multiplier, blue explosion at surviving ball (opposite of hitSide)
 - **Phase (shielded)**: bullet deflected like a wall (hitFlash, wall deflect sound), phase enemy unharmed
-- **Phase (vulnerable)**: kill both, +100 × multiplier, purple explosion
-- **Spiral**: kill both, +100 × multiplier, cyan explosion
-- **Bomb**: kill bomb, +100 × multiplier, yellow explosion, then chain-kill ALL other alive enemies (+100 each). Multiplier bumps +0.5
-- **Heart**: kill heart, restore health to 100%, repair all segments, pink explosion, plays `heart.mp3`
+- **Phase (vulnerable)**: deferred kill, +100 × multiplier, purple explosion
+- **Spiral (mid-lane-change)**: marked `dying` (deferred until lane animation completes), +100 × multiplier, cyan explosion
+- **Spiral (same lane)**: deferred kill, +100 × multiplier, cyan explosion
+- **Bomb**: instant kill, +100 × multiplier, yellow explosion, then chain-kill ALL other alive enemies (+100 each, cancels their pending kills). Multiplier bumps +0.5
+- **Heart**: instant kill, restore health to 100%, repair all segments, pink explosion, plays `heart.mp3`
 - **Distance bonus**: kills at depth ≥ 4 get **+50%** score
-- `onHit(lane, depth, prevDepth, color)` callback triggers `ExplosionRenderer.spawn()` at the enemy's current lane position
+- `onHit(lane, visualDepth, color, opts?)` callback triggers `ExplosionRenderer.spawn()` at the interpolated visual position
+
+### Collision Timing
+`resolve()` is called with different lerp values depending on context:
+- **Enemy tick fires**: `resolve(bulletTimer.getProgress(), 0)` — enemies just moved, bullets mid-cycle
+- **Bullet tick pre-move**: `resolve(1.0, enemyTimer.getProgress())` — bullets at current pos, enemies mid-cycle
+- **Bullet tick post-move**: `resolve(0.0, enemyTimer.getProgress())` — bullets just moved to new pos
 
 ### Score Multiplier
 - Starts at 1.0, max 4.0
@@ -505,6 +519,9 @@ Invisible absolutely-positioned divs over the backdrop's button artwork:
 - **Spawn happens before movement** in `_onEnemyTick` so entities move immediately on their spawn tick.
 - **Segment damage is cumulative** — each lane tracks damage independently. Second hit on same lane = instant death. Hearts repair all segments.
 - **Pattern timing is ms-based** — uses `state.elapsedMs` timestamps, not tick counts, so pattern durations are consistent regardless of tick speed changes.
+- **Deferred kills (ghost bullets)** — most enemy kills are not instant. `pendingKill` flag keeps the enemy alive for rendering while a ghost bullet visually travels to it. Bomb chain kills cancel any pending kills for affected enemies. Damage checks skip `pendingKill` enemies (already scored).
+- **Dying spirals** — spirals hit mid-lane-change are marked `dying` (not `pendingKill`), skipping their tick but continuing lane lerp animation until it completes, then exploding.
+- **`onHit` callback signature** is `(lane, visualDepth, color, opts?)` — `visualDepth` is the lerp-interpolated position, not the grid depth. `opts` is optional (e.g., `{ tankSide }` for tank hits).
 
 ---
 
@@ -513,13 +530,13 @@ Invisible absolutely-positioned divs over the backdrop's button artwork:
 ### Enemy Tick (dynamic: 800ms → 500ms)
 1. Remove dead enemies, walls, doublewalls from previous tick
 2. Maybe spawn new entity (spawn before movement so entities move immediately)
-3. Tick all alive enemies (depth -= 1)
+3. Tick all alive enemies — depth -= 1 (skip `dying` spirals — they keep ticking for smooth visuals)
 4. Tick all alive walls (depth -= 1)
 5. Tick all alive doublewalls (depth -= 1)
-6. Notify ring flash (onEnemyMove callback)
-7. Resolve collisions (bullet vs wall deflect, bullet vs enemy)
+6. Notify ring flash (onEnemyMove callback, uses prevDepth since lerp hasn't started)
+7. Resolve collisions with `resolve(bulletTimer.getProgress(), 0)` — enemies just moved, bullets mid-cycle
 8. Remove dead enemies (shot ones)
-9. Damage checks: enemies at depth < 0 → segment damage (non-hearts) + apply type-specific HP damage, kill entity
+9. Damage checks: enemies at depth < 0 → segment damage (non-hearts) + apply type-specific HP damage, kill entity (skip `pendingKill` — already scored)
 10. Damage checks: walls at depth < 0 on player lane → wall escalation (else dodge/remove)
 11. Damage checks: doublewalls at depth < 0 on player lane → wall escalation (else dodge/remove)
 12. If health ≤ 0 → game over (onGameOver callback, stop music)
@@ -528,10 +545,10 @@ Invisible absolutely-positioned divs over the backdrop's button artwork:
 
 ### Bullet Tick (every 200ms)
 1. Remove dead bullets
-2. Resolve collisions BEFORE moving (catch enemies at depth 0)
+2. Resolve collisions BEFORE moving with `resolve(1.0, enemyTimer.getProgress())` — catch enemies at depth 0
 3. Remove dead enemies
 4. Tick all alive bullets (depth += 1)
-5. Resolve collisions AFTER moving (bullet moved into enemy)
+5. Resolve collisions AFTER moving with `resolve(0.0, enemyTimer.getProgress())` — bullet moved into enemy
 6. Remove dead enemies immediately
 7. Decrement fire cooldown
 
@@ -542,9 +559,11 @@ Invisible absolutely-positioned divs over the backdrop's button artwork:
 4. Decay ring flash + wall hitFlash
 5. Clear graphics
 6. Update explosion particles
-7. Draw tunnel → entities → explosions (skip if game over)
-8. Draw explosion particles + tunnel explosion
-9. Update HUD (score, multiplier, health bar, warnings, game over text)
+7. Advance ghost bullets (pendingKills) at 10 segments/sec — when ghost reaches enemy, trigger explosion and final kill
+8. Resolve dying spirals — when lane animation completes, trigger explosion and kill
+9. Draw tunnel → entities → explosions (skip if game over)
+10. Draw explosion particles + tunnel explosion
+11. Update HUD (score, multiplier, health bar, warnings, game over text)
 
 ---
 
