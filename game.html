@@ -99,33 +99,45 @@
       -webkit-tap-highlight-color: transparent;
       z-index: 10;
       cursor: pointer;
+      transition: background 0.05s ease-out;
     }
-    .touch-zone:active {
-      background: rgba(124, 255, 178, 0.1);
+    .touch-zone.flash {
+      background: radial-gradient(circle, rgba(124, 255, 178, 0.45) 0%, transparent 70%);
     }
     #touch-display {
-      top: 66.5%;
-      left: 46%;
-      width: 14%;
-      height: 6.5%;
+      top: 65.5%;
+      left: 27%;
+      width: 19%;
+      height: 8%;
+      border-radius: 8px;
+    }
+    #touch-pause {
+      top: 65.5%;
+      left: 54%;
+      width: 19%;
+      height: 8%;
+      border-radius: 8px;
     }
     #touch-left {
-      top: 78%;
-      left: 3.5%;
-      width: 27.5%;
-      height: 18%;
+      top: 82.5%;
+      left: 4%;
+      width: 27%;
+      height: 12%;
+      border-radius: 10px;
     }
     #touch-fire {
-      top: 78%;
-      left: 34%;
-      width: 32%;
-      height: 18%;
+      top: 82.5%;
+      left: 35%;
+      width: 30%;
+      height: 12%;
+      border-radius: 10px;
     }
     #touch-right {
-      top: 78%;
-      left: 68.5%;
-      width: 28%;
-      height: 18%;
+      top: 82.5%;
+      left: 69%;
+      width: 27%;
+      height: 12%;
+      border-radius: 10px;
     }
 
     /* When mobile cabinet is active, center vertically or scroll if too tall */
@@ -153,6 +165,7 @@
     <img src="/backdropnew.png" alt="" />
     <div id="cabinet-screen"></div>
     <div id="touch-display" class="touch-zone"></div>
+    <div id="touch-pause" class="touch-zone"></div>
     <div id="touch-left" class="touch-zone"></div>
     <div id="touch-fire" class="touch-zone"></div>
     <div id="touch-right" class="touch-zone"></div>

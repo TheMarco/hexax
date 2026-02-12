@@ -25,7 +25,7 @@ export const CONFIG = Object.freeze({
     ENEMY: 0xff6644,
     BULLET: 0xaaffdd,
     SHIP: 0x7cffb2,    // Match tunnel wireframe brightness
-    HUD: '#7cffb2',
+    HUD: '#a0ffd0',
     WALL: 0xff4444,        // Red
     TANK: 0xffc688,        // Peachy orange (G=198 ensures overlap with tunnel stays under green-dominant threshold)
     TANK_DAMAGED: 0xffc688, // Peachy orange

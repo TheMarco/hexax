@@ -17,6 +17,7 @@ const HEART_DIM = dimColor(CONFIG.COLORS.HEART, 0.8);         // Heart (pink) - 
 const PHASE_DIM = dimColor(CONFIG.COLORS.PHASE, 0.85);        // Phase enemy (purple) - brighter
 const SPIRAL_DIM = dimColor(CONFIG.COLORS.SPIRAL, 0.5);       // Spiral enemy (magenta)
 const BULLET_DIM = dimColor(CONFIG.COLORS.BULLET, 0.5);       // Bullet (cyan)
+const EXHAUST_DIM = dimColor(CONFIG.COLORS.BULLET, 0.2);     // Exhaust trail (very faint)
 const WALL_DIM = dimColor(CONFIG.COLORS.WALL, 0.9);           // Walls (red) - brighter
 
 export class EntityRenderer {
@@ -60,28 +61,25 @@ export class EntityRenderer {
     return bolts;
   }
 
-  spawnDeflect(entity) {
-    // Store reference to entity so we can track its depth as it moves
+  spawnDeflect(entity, hitDepth) {
+    // hitDepth = bullet's visual depth at collision time (lerp-exact)
     const type = entity.type;
     if (type === 'doublewall') {
-      // Two sets of bolts — one per face segment
       this.deflectEffects.push({
-        entity,
+        entity, hitDepth,
         elapsed: 0, lifetime: 350,
         boltsA: this._makeEdgeBolts(4 + Math.floor(Math.random() * 2)),
         boltsB: this._makeEdgeBolts(4 + Math.floor(Math.random() * 2)),
       });
     } else if (type === 'phase') {
-      // Shield surface sparks (outward-facing semicircle)
       this.deflectEffects.push({
-        entity,
+        entity, hitDepth,
         elapsed: 0, lifetime: 300,
         bolts: this._makeShieldBolts(10 + Math.floor(Math.random() * 4)),
       });
     } else {
-      // Single wall — bolts along one face edge
       this.deflectEffects.push({
-        entity,
+        entity, hitDepth,
         elapsed: 0, lifetime: 350,
         bolts: this._makeEdgeBolts(5 + Math.floor(Math.random() * 3)),
       });
@@ -89,7 +87,7 @@ export class EntityRenderer {
   }
 
 
-  draw(gfx, maskGfx, state, entityManager, visualOffset, rotAngle = 0, bulletLerp = 0, enemyLerp = 0, dt = 0) {
+  draw(gfx, maskGfx, state, entityManager, visualOffset, rotAngle = 0, bulletLerp = 0, enemyLerp = 0, dt = 0, muzzleFlash = 0) {
     // Build render list with all entities and their visual depths
     const renderList = [];
 
@@ -140,10 +138,13 @@ export class EntityRenderer {
         if (pos) {
           const scale = this.geometry.getScaleLerp(visualDepth);
           const size = 6 * scale;
+          // Compute trail end position (0.7 segments behind bullet)
+          const trailDepth = Math.max(0, visualDepth - 0.7);
+          const trailPos = this.geometry.getMidpointLerp(trailDepth, visualLane, rotAngle);
           renderList.push({
             type: 'bullet',
             depth: visualDepth,
-            pos, size,
+            pos, size, trailPos,
           });
         }
       }
@@ -212,10 +213,12 @@ export class EntityRenderer {
 
     // Add deflect effects (lightning) to be depth-sorted
     for (const effect of this.deflectEffects) {
-      // Use entity's current interpolated depth so effect follows the entity
       const entity = effect.entity;
-      if (entity && entity.alive) {
-        const visualDepth = entity.prevDepth + (entity.depth - entity.prevDepth) * enemyLerp;
+      if (entity) {
+        // Use bullet's visual hit depth (lerp-exact) for positioning
+        const visualDepth = effect.hitDepth != null
+          ? effect.hitDepth
+          : (entity.alive ? entity.prevDepth + (entity.depth - entity.prevDepth) * enemyLerp : entity.depth);
         if (visualDepth >= 0 && visualDepth <= CONFIG.MAX_DEPTH) {
           renderList.push({
             type: 'deflect',
@@ -248,8 +251,47 @@ export class EntityRenderer {
       if (item.type === 'enemy') {
         this._drawEnemyWireframe(gfx, item);
       } else if (item.type === 'bullet') {
-        // Bullets should be bright - don't dim them
-        drawGlowDiamond(gfx, item.pos.x, item.pos.y, Math.max(item.size, 2), CONFIG.COLORS.BULLET);
+        // Tiny wireframe missile pointing toward tunnel center
+        const bx = item.pos.x;
+        const by = item.pos.y;
+        // Forward direction: toward tunnel center
+        const fdx = CONFIG.CENTER_X - bx;
+        const fdy = CONFIG.CENTER_Y - by;
+        const flen = Math.sqrt(fdx * fdx + fdy * fdy) || 1;
+        const fx = fdx / flen; // forward unit vector
+        const fy = fdy / flen;
+        const px = -fy; // perpendicular unit vector
+        const py = fx;
+        const s = Math.max(item.size, 2.5); // scale factor
+
+        // Nose tip (pointed front)
+        const nose = { x: bx + fx * s * 1.6, y: by + fy * s * 1.6 };
+        // Body corners (behind nose)
+        const bodyFL = { x: bx + fx * s * 0.3 - px * s * 0.4, y: by + fy * s * 0.3 - py * s * 0.4 };
+        const bodyFR = { x: bx + fx * s * 0.3 + px * s * 0.4, y: by + fy * s * 0.3 + py * s * 0.4 };
+        const bodyBL = { x: bx - fx * s * 1.0 - px * s * 0.4, y: by - fy * s * 1.0 - py * s * 0.4 };
+        const bodyBR = { x: bx - fx * s * 1.0 + px * s * 0.4, y: by - fy * s * 1.0 + py * s * 0.4 };
+        // Tail fins (flared out at back)
+        const finL = { x: bx - fx * s * 1.0 - px * s * 0.9, y: by - fy * s * 1.0 - py * s * 0.9 };
+        const finR = { x: bx - fx * s * 1.0 + px * s * 0.9, y: by - fy * s * 1.0 + py * s * 0.9 };
+
+        // Draw nose cone
+        drawGlowLine(gfx, nose.x, nose.y, bodyFL.x, bodyFL.y, CONFIG.COLORS.BULLET);
+        drawGlowLine(gfx, nose.x, nose.y, bodyFR.x, bodyFR.y, CONFIG.COLORS.BULLET);
+        // Body sides
+        drawGlowLine(gfx, bodyFL.x, bodyFL.y, bodyBL.x, bodyBL.y, CONFIG.COLORS.BULLET);
+        drawGlowLine(gfx, bodyFR.x, bodyFR.y, bodyBR.x, bodyBR.y, CONFIG.COLORS.BULLET);
+        // Tail base
+        drawGlowLine(gfx, bodyBL.x, bodyBL.y, bodyBR.x, bodyBR.y, BULLET_DIM);
+        // Fins
+        drawGlowLine(gfx, bodyBL.x, bodyBL.y, finL.x, finL.y, BULLET_DIM);
+        drawGlowLine(gfx, bodyBR.x, bodyBR.y, finR.x, finR.y, BULLET_DIM);
+
+        // Exhaust trail (faint converging lines behind missile)
+        if (item.trailPos) {
+          drawGlowLine(gfx, bodyBL.x, bodyBL.y, item.trailPos.x, item.trailPos.y, EXHAUST_DIM);
+          drawGlowLine(gfx, bodyBR.x, bodyBR.y, item.trailPos.x, item.trailPos.y, EXHAUST_DIM);
+        }
       } else if (item.type === 'wall') {
         // Draw wireframe only (no blocker - it was hiding tunnel lines)
         this._drawWallWireframe(gfx, item.depth, item.visualLane, item.rotAngle, item.color);
@@ -263,7 +305,7 @@ export class EntityRenderer {
     }
 
     // Draw ship (always in front)
-    this._drawShip(gfx, maskGfx, visualOffset, rotAngle);
+    this._drawShip(gfx, maskGfx, visualOffset, rotAngle, muzzleFlash);
   }
 
   _wallPerp(v1, v2, height) {
@@ -788,10 +830,12 @@ _drawTank(gfx, maskGfx, lx, ly, rx, ry, size, hp, hitSide) {
     if (lifeRatio <= 0) return;
 
     const entity = effect.entity;
-    if (!entity || !entity.alive) return;
+    if (!entity) return;
 
-    // Use entity's current depth so effect follows it as it moves
-    const visualDepth = entity.prevDepth + (entity.depth - entity.prevDepth) * enemyLerp;
+    // Use bullet's visual hit depth for positioning (lerp-exact)
+    const visualDepth = effect.hitDepth != null
+      ? effect.hitDepth
+      : (entity.alive ? entity.prevDepth + (entity.depth - entity.prevDepth) * enemyLerp : entity.depth);
     if (visualDepth < 0 || visualDepth > CONFIG.MAX_DEPTH) return;
 
     const color = this._deflectColor(lifeRatio);
@@ -1501,7 +1545,7 @@ _drawTank(gfx, maskGfx, lx, ly, rx, ry, size, hp, hitSide) {
     drawGlowDashedEllipse(gfx, ox, oy, r, r * tilt, color, rotation);
   }
 
-  _drawShip(gfx, maskGfx, visualOffset, rotAngle) {
+  _drawShip(gfx, maskGfx, visualOffset, rotAngle, muzzleFlash = 0) {
     const visualLane = (0 + visualOffset) % CONFIG.NUM_LANES;
     // Ship stays fixed - tunnel rotates around it (pass 0 for rotAngle)
     const pos = this.geometry.getMidpoint(0, visualLane, 0);
@@ -1593,5 +1637,20 @@ _drawTank(gfx, maskGfx, lx, ly, rx, ry, size, hp, hitSide) {
     drawGlowPolygon(gfx, [panelFrontLeft, panelFrontRight, panelBackRight, panelBackLeft], CONFIG.COLORS.SHIP);
     drawGlowPolygon(gfx, [midFrontLeft, midFrontRight, midBackRight, midBackLeft], CONFIG.COLORS.SHIP);
     drawGlowPolygon(gfx, [barrelFrontLeft, barrelFrontRight, barrelTipRight, barrelTipLeft], CONFIG.COLORS.SHIP);
+
+    // Muzzle flash: radial starburst at barrel tip when firing
+    if (muzzleFlash > 0) {
+      const flashX = barrelTipCenter.x + nx * 6;
+      const flashY = barrelTipCenter.y + ny * 6;
+      const numRays = 6;
+      const rayLen = (8 + 16 * muzzleFlash);
+      for (let i = 0; i < numRays; i++) {
+        const angle = (i / numRays) * Math.PI * 2;
+        const rx = Math.cos(angle);
+        const ry = Math.sin(angle);
+        drawGlowLine(gfx, flashX, flashY,
+                           flashX + rx * rayLen, flashY + ry * rayLen, 0xffffff);
+      }
+    }
   }
 }

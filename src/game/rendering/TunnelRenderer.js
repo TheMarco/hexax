@@ -38,9 +38,9 @@ export class TunnelRenderer {
     const { NUM_SEGMENTS, NUM_LANES } = CONFIG;
     const geo = this.geometry;
 
-    // Pulse damaged segments (faster than "PRESS FIRE" text for urgency)
-    this.damageGlowPhase += deltaMs / 300; // Complete cycle every 0.6 seconds
-    const damageAlpha = 0.5 + 0.5 * Math.abs(Math.sin(this.damageGlowPhase));
+    // Pulse damaged segments — fast urgent flashing
+    this.damageGlowPhase += deltaMs / 150; // Complete cycle every 0.3 seconds
+    const damageAlpha = 0.6 + 0.4 * Math.abs(Math.sin(this.damageGlowPhase));
 
     // Draw hex ring perimeters
     for (let i = 0; i < NUM_SEGMENTS; i++) {
@@ -50,14 +50,14 @@ export class TunnelRenderer {
         const v2 = geo.getVertex(i, next, rotAngle);
         // Outer ring (i===0): pulsing white dashed if damaged (glowing warning!)
         if (i === 0 && segmentDamage && segmentDamage[k]) {
-          // Draw with pulsing glow effect (multi-pass for intensity)
+          // Draw with pulsing glow effect — bright red/orange warning
           const glowPasses = [
-            { width: 12, alpha: damageAlpha * 0.08 },
-            { width: 6, alpha: damageAlpha * 0.2 },
-            { width: 2, alpha: damageAlpha * 1.0 },
+            { width: 14, alpha: damageAlpha * 0.15, color: 0xff4444 },
+            { width: 8, alpha: damageAlpha * 0.4, color: 0xff6644 },
+            { width: 2.5, alpha: damageAlpha * 1.0, color: 0xff8866 },
           ];
           for (const pass of glowPasses) {
-            gfx.lineStyle(pass.width, 0xffffff, pass.alpha);
+            gfx.lineStyle(pass.width, pass.color || 0xffffff, pass.alpha);
             // Calculate dashes based on line length for consistent fine appearance
             const dx = v2.x - v1.x;
             const dy = v2.y - v1.y;
@@ -99,12 +99,12 @@ export class TunnelRenderer {
 
         if (isDamaged) {
           const glowPasses = [
-            { width: 12, alpha: damageAlpha * 0.08 },
-            { width: 6, alpha: damageAlpha * 0.2 },
-            { width: 2, alpha: damageAlpha * 1.0 },
+            { width: 14, alpha: damageAlpha * 0.15, color: 0xff4444 },
+            { width: 8, alpha: damageAlpha * 0.4, color: 0xff6644 },
+            { width: 2.5, alpha: damageAlpha * 1.0, color: 0xff8866 },
           ];
           for (const pass of glowPasses) {
-            gfx.lineStyle(pass.width, 0xffffff, pass.alpha);
+            gfx.lineStyle(pass.width, pass.color || 0xffffff, pass.alpha);
             // Calculate dashes based on line length for consistent fine appearance
             const dx = v2.x - v1.x;
             const dy = v2.y - v1.y;

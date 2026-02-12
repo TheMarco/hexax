@@ -4,8 +4,8 @@ export class CollisionSystem {
   constructor(entityManager, state) {
     this.entityManager = entityManager;
     this.state = state;
-    this.onHit = null; // callback(lane, visualDepth, color) when a hit occurs (instant kills)
-    this.onWallDeflect = null; // callback(type, lane, depth, prevDepth, lane2) when bullet hits a wall
+    this.onHit = null; // callback(lane, visualDepth, color, opts?) when a hit occurs (instant kills)
+    this.onWallDeflect = null; // callback(entity, hitDepth) when bullet hits a wall
     this.onHeartCollect = null; // callback() when bullet hits a heart
     this.pendingKills = []; // deferred visual kills: ghost bullet advances to enemy, then explosion
   }
@@ -26,7 +26,9 @@ export class CollisionSystem {
           bullet.hitDepth = wall.depth;
           bullet.hitPrevDepth = wall.prevDepth;
           wall.hitFlash = 1.0;
-          if (this.onWallDeflect) this.onWallDeflect(wall);
+          // Capture wall's visual depth at collision time (frozen, won't jump on next tick)
+          const wallVisualDepth = wall.prevDepth + (wall.depth - wall.prevDepth) * enemyLerp;
+          if (this.onWallDeflect) this.onWallDeflect(wall, wallVisualDepth);
           hitWall = true;
           break;
         }
@@ -40,7 +42,8 @@ export class CollisionSystem {
           bullet.hitDepth = dw.depth;
           bullet.hitPrevDepth = dw.prevDepth;
           dw.hitFlash = 1.0;
-          if (this.onWallDeflect) this.onWallDeflect(dw);
+          const dwVisualDepth = dw.prevDepth + (dw.depth - dw.prevDepth) * enemyLerp;
+          if (this.onWallDeflect) this.onWallDeflect(dw, dwVisualDepth);
           hitWall = true;
           break;
         }
@@ -56,7 +59,8 @@ export class CollisionSystem {
             bullet.hitDepth = enemy.depth;
             bullet.hitPrevDepth = enemy.prevDepth;
             enemy.hitFlash = 1.0;
-            if (this.onWallDeflect) this.onWallDeflect(enemy);
+            const phaseVisualDepth = enemy.prevDepth + (enemy.depth - enemy.prevDepth) * enemyLerp;
+            if (this.onWallDeflect) this.onWallDeflect(enemy, phaseVisualDepth);
             break;
           }
 
@@ -77,13 +81,13 @@ export class CollisionSystem {
             this.state.health = 100;
             this.state.repairAllSegments();
             if (this.onHeartCollect) this.onHeartCollect();
-            if (this.onHit) this.onHit(enemy.lane, enemyVisualDepth, CONFIG.COLORS.HEART);
+            if (this.onHit) this.onHit(enemy.lane, enemyVisualDepth, CONFIG.COLORS.HEART, { entityType: 'heart' });
           } else if (enemy.type === 'bomb') {
             // Instant — chain kills are a visual spectacle
             const enemyVisualDepth = enemy.prevDepth + (enemy.depth - enemy.prevDepth) * enemyLerp;
             enemy.kill();
             this.state.addScore(Math.round(100 * distBonus));
-            if (this.onHit) this.onHit(enemy.lane, enemyVisualDepth, CONFIG.COLORS.BOMB);
+            if (this.onHit) this.onHit(enemy.lane, enemyVisualDepth, CONFIG.COLORS.BOMB, { entityType: 'bomb' });
 
             for (const e of enemies) {
               if (!e.alive || e === enemy || e.dying) continue;
@@ -95,7 +99,7 @@ export class CollisionSystem {
               }
               e.kill();
               this.state.addScore(100);
-              if (this.onHit) this.onHit(e.lane, eVisual, color);
+              if (this.onHit) this.onHit(e.lane, eVisual, color, { entityType: e.type });
             }
             // Bump multiplier for chain kills
             this.state.scoreMultiplier = Math.min(this.state.scoreMultiplier + 0.5, 4);
@@ -111,12 +115,13 @@ export class CollisionSystem {
               this.pendingKills.push({
                 enemy, color: CONFIG.COLORS.TANK, lane: enemy.lane,
                 ghostDepth: bulletVisualDepth, elapsed: 0, tankSide,
+                entityType: 'tank_kill',
               });
             } else {
               // Tank survives — instant explosion at the destroyed ball (hitSide)
               const enemyVisualDepth = enemy.prevDepth + (enemy.depth - enemy.prevDepth) * enemyLerp;
               this.state.addScore(Math.round(50 * distBonus));
-              if (this.onHit) this.onHit(enemy.lane, enemyVisualDepth, CONFIG.COLORS.TANK, { tankSide: enemy.hitSide });
+              if (this.onHit) this.onHit(enemy.lane, enemyVisualDepth, CONFIG.COLORS.TANK, { tankSide: enemy.hitSide, entityType: 'tank_hit' });
             }
             this.state.scoreMultiplier = Math.min(this.state.scoreMultiplier + 0.1, 4);
           } else if (enemy.type === 'spiral' && enemy.prevLane !== enemy.lane) {
@@ -135,6 +140,7 @@ export class CollisionSystem {
             this.pendingKills.push({
               enemy, color: hitColor, lane: enemy.lane,
               ghostDepth: bulletVisualDepth, elapsed: 0,
+              entityType: enemy.type,
             });
           }
           break;

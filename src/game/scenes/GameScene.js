@@ -36,9 +36,9 @@ export class GameScene extends Phaser.Scene {
     this.explosionRenderer = new ExplosionRenderer();
     this.tunnelExplosion = new TunnelExplosionRenderer(this.geometry);
     this.collisionSystem = new CollisionSystem(this.entityManager, this.state);
-    this.collisionSystem.onWallDeflect = (entity) => {
+    this.collisionSystem.onWallDeflect = (entity, hitDepth) => {
       this.soundEngine.playHitWall();
-      this.entityRenderer.spawnDeflect(entity);
+      this.entityRenderer.spawnDeflect(entity, hitDepth);
     };
     this.collisionSystem.onHeartCollect = () => {
       this.soundEngine.playHeart();
@@ -54,19 +54,33 @@ export class GameScene extends Phaser.Scene {
         ? this._tankBallPos(pos, visualDepth, opts.tankSide)
         : pos;
       this.explosionRenderer.spawn(ep.x, ep.y, color);
-      this.soundEngine.playExplosion();
+      this._playKillSound(opts && opts.entityType);
     };
     this.spawnSystem = new SpawnSystem(this.entityManager, this.state);
     this.inputSystem = new InputSystem(this, this.state, this.entityManager);
     this.inputSystem.onFire = () => {
       this.soundEngine.playFire();
+      this._muzzleFlash = 1.0;
     };
     this.tickSystem = new TickSystem(this, this.state, this.entityManager, this.collisionSystem, this.spawnSystem);
-    this.tickSystem.onPlayerHit = (lane, color) => {
+    this.tickSystem.onPlayerHit = (lane, color, dmg) => {
       const VISUAL_OFFSET = 2;
       const pos = this.geometry.getMidpointLerp(0, (0 + VISUAL_OFFSET) % CONFIG.NUM_LANES, this._rotAngle);
       this.explosionRenderer.spawn(pos.x, pos.y, color);
       this.soundEngine.playBreach();
+
+      // Screen shake for enemy hits (walls get their own wobble from onWallHit)
+      if (color !== CONFIG.COLORS.TUNNEL && dmg) {
+        // Ring flash — proportional to damage
+        const flashIntensity = dmg >= 20 ? 0.6 : 0.3;
+        for (let i = 0; i < this._ringFlash.length; i++) {
+          this._ringFlash[i] = Math.max(this._ringFlash[i], flashIntensity);
+        }
+        // Wobble — proportional to damage
+        this._wobbleElapsed = 0;
+        this._wobbleActive = true;
+        this._wobbleAmplitude = dmg >= 20 ? WOBBLE_AMPLITUDE * 0.8 : WOBBLE_AMPLITUDE * 0.4;
+      }
     };
     this.tickSystem.onWallHit = (tier) => {
       // Visual feedback per tier
@@ -139,6 +153,16 @@ export class GameScene extends Phaser.Scene {
     this._wobbleElapsed = 0;
     this._wobbleAmplitude = WOBBLE_AMPLITUDE;
 
+    // Muzzle flash state (1.0 → 0 decay)
+    this._muzzleFlash = 0;
+
+    // Pause state
+    this._paused = false;
+    this.input.keyboard.on('keydown-ESC', () => {
+      if (this.state.gameOver) return;
+      this._togglePause();
+    });
+
     // Play get ready sound on game start, then start music
     this.time.delayedCall(500, () => {
       this.soundEngine.playGetReady();
@@ -150,6 +174,28 @@ export class GameScene extends Phaser.Scene {
 
   get isRotating() {
     return this._rotActive;
+  }
+
+  _togglePause() {
+    this._paused = !this._paused;
+    this.tickSystem.enemyTimer.paused = this._paused;
+    this.tickSystem.bulletTimer.paused = this._paused;
+    if (this._paused) {
+      this.soundEngine.pauseMusic();
+    } else {
+      this.soundEngine.resumeMusic();
+    }
+  }
+
+  _playKillSound(entityType) {
+    switch (entityType) {
+      case 'tank_hit':   this.soundEngine.playTankHit(); break;
+      case 'tank_kill':  this.soundEngine.playTankKill(); break;
+      case 'bomb':       this.soundEngine.playBombExplode(); break;
+      case 'spiral':     this.soundEngine.playSpiralKill(); break;
+      case 'phase':      this.soundEngine.playPhaseKill(); break;
+      default:           this.soundEngine.playExplosion(); break;
+    }
   }
 
   _tankBallPos(pos, visualDepth, side) {
@@ -182,6 +228,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(time, delta) {
+    if (this._paused) {
+      this.hud.update(delta);
+      return;
+    }
     this.inputSystem.update(delta);
 
     // Smooth rotation animation
@@ -227,6 +277,11 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    // Decay muzzle flash (~80ms total)
+    if (this._muzzleFlash > 0) {
+      this._muzzleFlash = Math.max(0, this._muzzleFlash - dt * 12);
+    }
+
     this.tunnelGfx.clear();
     this.maskGfx.clear();
     this.gfx.clear();
@@ -266,7 +321,7 @@ export class GameScene extends Phaser.Scene {
               ? this._tankBallPos(pos, meetDepth, pk.tankSide)
               : pos;
             this.explosionRenderer.spawn(ep.x, ep.y, pk.color);
-            this.soundEngine.playExplosion();
+            this._playKillSound(pk.entityType);
           }
           pk.enemy.kill();
         }
@@ -299,7 +354,7 @@ export class GameScene extends Phaser.Scene {
         const pos = this.geometry.getMidpointLerp(visualDepth, visualLane, effectiveRotAngle);
         if (pos) {
           this.explosionRenderer.spawn(pos.x, pos.y, enemy.dyingColor);
-          this.soundEngine.playExplosion();
+          this._playKillSound('spiral');
         }
         enemy.kill();
       }
@@ -405,7 +460,7 @@ export class GameScene extends Phaser.Scene {
       this.tunnelRenderer.draw(this.tunnelGfx, activeFaceVertex, effectiveRotAngle, this._ringFlash, visualDamage, delta, tunnelOccluders);
 
       // Draw entities with masking: masks block tunnel, wireframes glow on top
-      this.entityRenderer.draw(this.gfx, this.maskGfx, this.state, this.entityManager, VISUAL_OFFSET, effectiveRotAngle, bulletLerp, enemyLerp, dt);
+      this.entityRenderer.draw(this.gfx, this.maskGfx, this.state, this.entityManager, VISUAL_OFFSET, effectiveRotAngle, bulletLerp, enemyLerp, dt, this._muzzleFlash);
     }
 
     this.explosionRenderer.draw(this.gfx);

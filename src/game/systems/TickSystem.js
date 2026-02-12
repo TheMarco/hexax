@@ -88,7 +88,7 @@ export class TickSystem {
         else if (enemy.type === 'spiral') { color = CONFIG.COLORS.SPIRAL; }
         enemy.kill();
         this.state.scoreMultiplier = 1; // reset multiplier on any player hit
-        if (this.onPlayerHit) this.onPlayerHit(enemy.lane, color);
+        if (this.onPlayerHit) this.onPlayerHit(enemy.lane, color, dmg);
 
         // Segment integrity damage (not for hearts — they just pass through)
         if (enemy.type !== 'heart') {

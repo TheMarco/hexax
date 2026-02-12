@@ -69,8 +69,10 @@ export class TitleScene extends Phaser.Scene {
     this.highScoreText = this.add.text(CONFIG.CENTER_X, 40, `HIGH SCORE: ${highScore}`, {
       fontFamily: 'Hyperspace',
       fontSize: '32px',
-      color: '#7cffb2',
+      color: '#a0ffd0',
       align: 'center',
+      stroke: '#a0ffd0',
+      strokeThickness: 1.5,
     }).setOrigin(0.5).setDepth(10);
 
     // Press Fire text (pulsing)
@@ -79,6 +81,8 @@ export class TitleScene extends Phaser.Scene {
       fontSize: '38px',
       color: '#ffffff',
       align: 'center',
+      stroke: '#ffffff',
+      strokeThickness: 2,
     }).setOrigin(0.5).setDepth(10);
 
     // Copyright
@@ -87,7 +91,9 @@ export class TitleScene extends Phaser.Scene {
       fontSize: '28px',
       color: '#ffffff',
       align: 'center',
-    }).setOrigin(0.5).setDepth(10).setAlpha(0.9);
+      stroke: '#ffffff',
+      strokeThickness: 1.5,
+    }).setOrigin(0.5).setDepth(10);
 
     // Start game on space
     this.input.keyboard.once('keydown-SPACE', () => {

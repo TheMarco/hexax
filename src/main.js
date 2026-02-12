@@ -57,16 +57,25 @@ document.fonts.ready.then(() => {
         window.dispatchEvent(new KeyboardEvent('keydown', { keyCode, code, key, bubbles: true }));
       };
 
+      // Button flash effect
+      const flashButton = (el) => {
+        el.classList.add('flash');
+        setTimeout(() => el.classList.remove('flash'), 150);
+      };
+
       document.getElementById('touch-left').addEventListener('touchstart', (e) => {
         e.preventDefault();
+        flashButton(e.currentTarget);
         sendKey(37, 'ArrowLeft', 'ArrowLeft');
       });
       document.getElementById('touch-right').addEventListener('touchstart', (e) => {
         e.preventDefault();
+        flashButton(e.currentTarget);
         sendKey(39, 'ArrowRight', 'ArrowRight');
       });
       document.getElementById('touch-fire').addEventListener('touchstart', (e) => {
         e.preventDefault();
+        flashButton(e.currentTarget);
         sendKey(32, 'Space', ' ');
       });
 
@@ -74,8 +83,16 @@ document.fonts.ready.then(() => {
       let currentShader = shaderOverlay.getShaderName();
       document.getElementById('touch-display').addEventListener('touchstart', (e) => {
         e.preventDefault();
+        flashButton(e.currentTarget);
         currentShader = currentShader === 'crt' ? 'vector' : 'crt';
         shaderOverlay.setShader(currentShader);
+      });
+
+      // Pause: send Escape key
+      document.getElementById('touch-pause').addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        flashButton(e.currentTarget);
+        sendKey(27, 'Escape', 'Escape');
       });
     }
   }, 100);
