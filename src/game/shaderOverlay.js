@@ -28,10 +28,10 @@ varying vec2 v_texCoord;
 #define BLOOM_STRENGTH 0.65
 #define HALATION_STRENGTH 0.35
 #define MASK_STRENGTH 0.12
-#define NOISE_STRENGTH 0.025
+#define NOISE_STRENGTH 0.006
 #define FLICKER_STRENGTH 0.08
 #define CURVATURE_STRENGTH 0.04
-#define CORNER_RADIUS 0.15
+#define CORNER_RADIUS 0.14
 
 const vec2 vRes = vec2(256.0, 224.0);
 const vec2 vTexel = vec2(1.0 / 256.0, 1.0 / 224.0);
@@ -82,12 +82,20 @@ vec3 getBlur(vec2 uv) {
 void main() {
   vec2 uv = v_texCoord;
 
-  if (roundedRectSDF(uv, vec2(1.0, 1.0), CORNER_RADIUS) > 0.0) {
+  float cornerDist = roundedRectSDF(uv, vec2(0.96, 0.96), CORNER_RADIUS);
+  if (cornerDist > 0.005) {
     gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
     return;
   }
+  float cornerMask = 1.0 - smoothstep(-0.003, 0.005, cornerDist);
 
   vec2 curved = curveUV(uv);
+
+  // Per-scanline horizontal jitter — analog H-sync timing imprecision
+  float jitterLine = floor(curved.y * vRes.y);
+  float hJitter = fract(sin(jitterLine * 54.37 + floor(u_time * 12.0) * 7.13) * 43758.5) - 0.5;
+  curved.x += hJitter * 0.0025;
+
   const float margin = 0.001;
   if (curved.x < -margin || curved.x > 1.0 + margin ||
       curved.y < -margin || curved.y > 1.0 + margin) {
@@ -136,11 +144,11 @@ void main() {
   float d = fract(virtualY) - 0.5;
 
   // Base sigma: narrow on large displays (visible gaps), wide on small (merge)
-  float baseSigma = mix(0.65, 0.35, smoothstep(1.5, 3.0, pitch));
+  float baseSigma = mix(0.55, 0.28, smoothstep(1.5, 3.0, pitch));
 
   // Bright content blooms the beam wider — distinctive CRT characteristic
   float bright = max(max(color.r, color.g), color.b);
-  float sigma = baseSigma + bright * 0.12;
+  float sigma = baseSigma + bright * 0.08;
 
   float beam = exp(-0.5 * d * d / (sigma * sigma));
 
@@ -163,6 +171,15 @@ void main() {
   // Fade mask on small displays to avoid aliasing
   color *= mix(vec3(1.0), mask, smoothstep(1.0, 2.0, pitch));
 
+  // ── 5b. RGB convergence error at screen edges ──
+  float convergeDist = length(curved - 0.5);
+  float convergeAmt = convergeDist * convergeDist * 0.02;
+  vec2 convergeDir = normalize(curved - 0.5 + 0.001);
+  vec2 rUV = clamp(curved + convergeDir * convergeAmt, 0.0, 1.0);
+  vec2 bUV = clamp(curved - convergeDir * convergeAmt, 0.0, 1.0);
+  color.r = mix(color.r, toLinear(texture2D(u_texture, rUV).rgb).r, 0.6);
+  color.b = mix(color.b, toLinear(texture2D(u_texture, bUV).rgb).b, 0.6);
+
   // ── 6. Warm color temperature (consumer NTSC TV) ──
   color *= vec3(1.04, 1.01, 0.95);
 
@@ -178,14 +195,20 @@ void main() {
   vec2 ctr = curved * 2.0 - 1.0;
   color *= 1.0 - dot(ctr, ctr) * 0.12;
 
-  // RGB static noise
-  color += noise3(gl_FragCoord.xy, u_time) * NOISE_STRENGTH;
+  // Rolling scan band — CRT refresh rate artifact
+  float bandPos = fract(curved.y * 0.5 - u_time * 0.08);
+  float band = smoothstep(0.0, 0.15, bandPos) * smoothstep(0.45, 0.15, bandPos);
+  color *= 1.0 + band * 0.12;
+
+  // Coarse analog RGB noise (3x3 pixel clumps)
+  color += noise3(floor(gl_FragCoord.xy / 3.0), u_time) * NOISE_STRENGTH;
 
   // Power supply flicker
   float flicker = sin(u_time * 13.7) * 0.5 + sin(u_time * 7.3) * 0.3 + sin(u_time * 23.1) * 0.2;
   float cb = max(max(color.r, color.g), color.b);
   color *= 1.0 + flicker * FLICKER_STRENGTH * (1.0 + cb * 0.5);
 
+  color *= cornerMask;
   gl_FragColor = vec4(clamp(toGamma(color), 0.0, 1.0), 1.0);
 }
 `;
@@ -274,7 +297,7 @@ varying vec2 v_texCoord;
 const vec2 texel = vec2(1.0 / 768.0, 1.0 / 672.0);
 
 #define CURVATURE 0.04
-#define CORNER_RADIUS 0.08
+#define CORNER_RADIUS 0.14
 
 float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 
@@ -315,16 +338,16 @@ vec3 vectorColorGrade(vec3 src) {
   vec3 hsv = rgb2hsv(src);
   float sat = hsv.y;
 
-  // Unsaturated content (ship white, flashes) → blue phosphor with white-hot core
+  // Unsaturated content (ship white, flashes) → blue phosphor fading to true white at high brightness
   if (sat < 0.12) {
     float e = pow(l, 1.1);
     float r = e * 0.3;
     float g = e * 0.85;
     float b = e * 1.0;
-    if (e > 0.8) {
-      float hotness = (e - 0.8) / 0.2;
-      r += hotness * 0.5;
-      g += hotness * 0.1;
+    if (e > 0.4) {
+      float hotness = smoothstep(0.4, 1.0, e);
+      r = mix(r, e, hotness);
+      g = mix(g, e, hotness);
     }
     return vec3(r, g, b);
   }
@@ -398,10 +421,12 @@ void main() {
   vec2 uv = v_texCoord;
 
   // Rounded corners
-  if (roundedRectSDF(uv, vec2(1.0, 1.0), CORNER_RADIUS) > 0.0) {
+  float cornerDist = roundedRectSDF(uv, vec2(0.96, 0.96), CORNER_RADIUS);
+  if (cornerDist > 0.005) {
     gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
     return;
   }
+  float cornerMask = 1.0 - smoothstep(-0.003, 0.005, cornerDist);
 
   // Barrel distortion
   vec2 curved = curveUV(uv);
@@ -474,6 +499,7 @@ void main() {
   vec3 prev = texture2D(u_prevFrame, vec2(uv.x, 1.0 - uv.y) + jitter).rgb;
   color = max(color, prev * u_phosphorDecay);
 
+  color *= cornerMask;
   gl_FragColor = vec4(clamp(color, 0.0, 1.0), 1.0);
 }
 `;
@@ -566,7 +592,7 @@ export function createShaderOverlay(gameCanvas) {
   const compositeUPrevFrame = gl.getUniformLocation(programs.vectorComposite.program, 'u_prevFrame');
   const compositeUPhosphorDecay = gl.getUniformLocation(programs.vectorComposite.program, 'u_phosphorDecay');
 
-  let currentPhosphorDecay = 0.78;
+  let currentPhosphorDecay = 0.68;
 
   // ── Persist FBOs for phosphor persistence (ping-pong, full-res) ──
   let persistA = null, persistB = null;
@@ -630,8 +656,6 @@ export function createShaderOverlay(gameCanvas) {
   gl.bindTexture(gl.TEXTURE_2D, texture);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 
   gl.clearColor(0, 0, 0, 0);
 
@@ -639,6 +663,15 @@ export function createShaderOverlay(gameCanvas) {
   try { savedShader = localStorage.getItem('hexax-display-mode') || 'vector'; } catch (e) {}
   // Map legacy 'vector' to the new composite pipeline
   let activeShaderName = (savedShader === 'crt') ? 'crt' : 'vector';
+
+  // CRT uses NEAREST for crisp scanlines; vector uses LINEAR for smooth glow
+  function applyTextureFilter(mode) {
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    const filter = mode === 'crt' ? gl.NEAREST : gl.LINEAR;
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+  }
+  applyTextureFilter(activeShaderName);
 
   function activateProgram(prog) {
     gl.useProgram(prog.program);
@@ -649,6 +682,8 @@ export function createShaderOverlay(gameCanvas) {
     gl.vertexAttribPointer(prog.aTexCoord, 2, gl.FLOAT, false, 16, 8);
   }
 
+  let lastRenderTime = 0;
+
   function render() {
     updateOverlayPosition();
     if (overlay.width <= 0 || overlay.height <= 0 ||
@@ -658,6 +693,8 @@ export function createShaderOverlay(gameCanvas) {
     }
 
     const now = performance.now() / 1000;
+    const dt = lastRenderTime > 0 ? Math.min(now - lastRenderTime, 0.1) : 1 / 60;
+    lastRenderTime = now;
 
     // Upload full-res game canvas
     gl.activeTexture(gl.TEXTURE0);
@@ -730,7 +767,9 @@ export function createShaderOverlay(gameCanvas) {
 
       gl.uniform2f(programs.vectorComposite.uResolution, overlay.width, overlay.height);
       gl.uniform1f(programs.vectorComposite.uTime, now);
-      gl.uniform1f(compositeUPhosphorDecay, currentPhosphorDecay);
+      // Framerate-independent phosphor decay: normalize to 60fps reference
+      const adjustedDecay = Math.pow(currentPhosphorDecay, dt * 60.0);
+      gl.uniform1f(compositeUPhosphorDecay, adjustedDecay);
 
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
@@ -767,6 +806,7 @@ export function createShaderOverlay(gameCanvas) {
     setShader(name) {
       if (name === 'crt' || name === 'vector') {
         activeShaderName = name;
+        applyTextureFilter(name);
         try { localStorage.setItem('hexax-display-mode', name); } catch (e) {}
       }
     },

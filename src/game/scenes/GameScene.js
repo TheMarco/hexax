@@ -253,7 +253,7 @@ export class GameScene extends Phaser.Scene {
         this._rotDir = 0;
         // Restore phosphor persistence
         const overlay = this.game.registry.get('shaderOverlay');
-        if (overlay) overlay.setPhosphorDecay(0.78);
+        if (overlay) overlay.setPhosphorDecay(0.68);
       }
     }
 
