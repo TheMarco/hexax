@@ -10,6 +10,8 @@
       try {
         var ref = document.referrer && new URL(document.referrer).hostname;
         if (ref && (ref === 'play.fun' || ref.endsWith('.play.fun'))) {
+          var isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+          if (!isTouch) document.documentElement.classList.add('playfun-embed');
           var s = document.createElement('script');
           s.src = 'https://sdk.play.fun';
           document.head.appendChild(s);
@@ -37,6 +39,16 @@
       align-items: center;
     }
     ::-webkit-scrollbar { display: none; }
+
+    /* === Play.fun embed (desktop only): scale canvas to 80%, align bottom === */
+    .playfun-embed body {
+      justify-content: flex-end;
+    }
+    .playfun-embed #game-container {
+      transform: scale(0.8);
+      transform-origin: center bottom;
+    }
+    .playfun-embed #shader-toggle { display: none; }
 
     /* === Desktop layout === */
     #game-container {
