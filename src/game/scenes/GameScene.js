@@ -13,6 +13,7 @@ import { HUD } from '../hud/HUD.js';
 import { ExplosionRenderer } from '../rendering/ExplosionRenderer.js';
 import { TunnelExplosionRenderer } from '../rendering/TunnelExplosionRenderer.js';
 import { HighScore } from '../HighScore.js';
+import { syncPlayFunScore, endPlayFunGame, resetPlayFunScore } from '../playfun.js';
 
 const STEP_ANGLE = Math.PI / 3; // 60° per lane
 const ROT_DURATION_MS = 150;    // total time for smooth 60° rotation
@@ -28,6 +29,7 @@ export class GameScene extends Phaser.Scene {
   create() {
     this.soundEngine = this.game.registry.get('soundEngine');
     this.soundEngine.stopMusic(); // clean up from previous game if restarting
+    resetPlayFunScore();
     this.geometry = new TunnelGeometry();
     this.tunnelRenderer = new TunnelRenderer(this.geometry);
     this.entityRenderer = new EntityRenderer(this.geometry);
@@ -118,6 +120,7 @@ export class GameScene extends Phaser.Scene {
       this.tunnelExplosion.trigger();
       this.soundEngine.playTunnelExplosion();
       this.soundEngine.stopMusic();
+      endPlayFunGame();
     };
     this.hud = new HUD(this);
 
@@ -466,5 +469,6 @@ export class GameScene extends Phaser.Scene {
     this.explosionRenderer.draw(this.gfx);
     this.tunnelExplosion.draw(this.gfx);
     this.hud.update(delta);
+    syncPlayFunScore(this.state.score);
   }
 }

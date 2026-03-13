@@ -1,6 +1,7 @@
 import { StartGame } from './game/main.js';
 import { createShaderOverlay } from './game/shaderOverlay.js';
 import { SoundEngine } from './game/audio/SoundEngine.js';
+import { initPlayFun } from './game/playfun.js';
 
 // Wait for fonts (Hyperspace) to load before starting the game
 document.fonts.ready.then(() => {
@@ -17,6 +18,9 @@ document.fonts.ready.then(() => {
   // Create game — on mobile, parent it inside the cabinet screen area
   const containerId = isTouchDevice ? 'cabinet-screen' : 'game-container';
   const game = StartGame(containerId);
+
+  // Initialize Play.fun SDK (only loads when embedded on play.fun)
+  initPlayFun();
 
   // Initialize audio on first user gesture (required by iOS)
   const soundEngine = new SoundEngine();
