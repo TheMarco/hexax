@@ -1,0 +1,16 @@
+# Unreal generated/build folders
+Binaries/
+Build/
+DerivedDataCache/
+Intermediate/
+Saved/
+.vs/
+*.VC.db
+*.opensdf
+*.sdf
+*.sln
+*.xcodeproj/
+*.xcworkspace/
+
+# Keep Content/ (your .umap and any future assets live here)
+!Content/

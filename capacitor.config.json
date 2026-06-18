@@ -8,6 +8,9 @@
     "scheme": "Hexax",
     "backgroundColor": "#000000"
   },
+  "android": {
+    "backgroundColor": "#000000"
+  },
   "plugins": {
     "SplashScreen": {
       "launchShowDuration": 0

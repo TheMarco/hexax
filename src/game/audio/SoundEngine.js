@@ -37,20 +37,20 @@ export class SoundEngine {
     document.addEventListener('click', resumeAudio);
 
     // Preload all sounds
-    this.loadSound('getready', '/sounds/getready.mp3');
-    this.loadSound('twist', '/sounds/twist.mp3');
-    this.loadSound('shoot', '/sounds/shoot.mp3');
-    this.loadSound('explosion', '/sounds/explode.mp3');
-    this.loadSound('death', '/sounds/death.mp3');
-    this.loadSound('hitwall', '/sounds/hitwall.mp3');
-    this.loadSound('heart', '/sounds/heart.mp3');
-    this.loadSound('breach', '/sounds/breach.mp3');
-    this.loadSound('tank_hit', '/sounds/tank_hit.mp3');
-    this.loadSound('tank_kill', '/sounds/tank_kill.mp3');
-    this.loadSound('bomb_explode', '/sounds/bomb_explode.mp3');
-    this.loadSound('spiral_kill', '/sounds/spiral_kill.mp3');
-    this.loadSound('phase_kill', '/sounds/phase_kill.mp3');
-    this.loadSound('soundtrack', '/sounds/soundtrack.mp3');
+    this.loadSound('getready', 'sounds/getready.mp3');
+    this.loadSound('twist', 'sounds/twist.mp3');
+    this.loadSound('shoot', 'sounds/shoot.mp3');
+    this.loadSound('explosion', 'sounds/explode.mp3');
+    this.loadSound('death', 'sounds/death.mp3');
+    this.loadSound('hitwall', 'sounds/hitwall.mp3');
+    this.loadSound('heart', 'sounds/heart.mp3');
+    this.loadSound('breach', 'sounds/breach.mp3');
+    this.loadSound('tank_hit', 'sounds/tank_hit.mp3');
+    this.loadSound('tank_kill', 'sounds/tank_kill.mp3');
+    this.loadSound('bomb_explode', 'sounds/bomb_explode.mp3');
+    this.loadSound('spiral_kill', 'sounds/spiral_kill.mp3');
+    this.loadSound('phase_kill', 'sounds/phase_kill.mp3');
+    this.loadSound('soundtrack', 'sounds/soundtrack.mp3');
   }
 
   async loadSound(name, url) {

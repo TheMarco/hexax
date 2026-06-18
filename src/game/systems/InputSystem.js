@@ -31,6 +31,9 @@ export class InputSystem {
   }
 
   update(delta) {
+    // Poll handheld/gamepad input (window.mobileInput set by handheld bridge)
+    this._pollMobileInput();
+
     if (this.state.gameOver) {
       this.state.gameOverElapsed += delta || 0;
       if (this._pendingRestart) {
@@ -63,6 +66,29 @@ export class InputSystem {
         this._queue.shift();
         this._fire();
         // fire is instant, continue processing queue
+      }
+    }
+  }
+
+  /**
+   * Read window.mobileInput (set by handheld input bridge) and queue actions.
+   * Edge-detected fields ensure one queue entry per press, matching keyboard behavior.
+   */
+  _pollMobileInput() {
+    const m = window.mobileInput;
+    if (!m) return;
+
+    if (m.leftJustPressed && this._queue.length < MAX_QUEUE) {
+      this._queue.push('left');
+    }
+    if (m.rightJustPressed && this._queue.length < MAX_QUEUE) {
+      this._queue.push('right');
+    }
+    if (m.actionJustPressed) {
+      if (this.state.gameOver && this.state.gameOverElapsed >= 3000) {
+        this._pendingRestart = true;
+      } else if (this._queue.length < MAX_QUEUE) {
+        this._queue.push('fire');
       }
     }
   }

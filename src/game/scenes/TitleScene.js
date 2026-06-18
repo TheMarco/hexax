@@ -8,7 +8,7 @@ export class TitleScene extends Phaser.Scene {
   }
 
   preload() {
-    this.load.image('logo', '/logo.png');
+    this.load.image('logo', 'logo.png');
   }
 
   create() {
@@ -99,9 +99,20 @@ export class TitleScene extends Phaser.Scene {
     this.input.keyboard.once('keydown-SPACE', () => {
       this.scene.start('GameScene');
     });
+
+    // Track whether we've started (prevent double-start from mobileInput)
+    this._started = false;
   }
 
   update(time, delta) {
+    // Check handheld/gamepad input for start
+    const m = window.mobileInput;
+    if (m && m.actionJustPressed && !this._started) {
+      this._started = true;
+      this.scene.start('GameScene');
+      return;
+    }
+
     this.elapsed += delta / 1000;
     this.gfx.clear();
 

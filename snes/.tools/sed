@@ -1,0 +1,13 @@
+#!/bin/sh
+# sed shim for PVSnesLib's snes_rules on macOS.
+# Its post-link symbol cleanup uses GNU-style `sed -i <script> file`, which
+# BSD/macOS sed rejects (BSD needs `-i ''`). Prefer GNU sed if present,
+# otherwise translate the `-i` form. All other invocations pass through.
+if command -v gsed >/dev/null 2>&1; then
+  exec gsed "$@"
+fi
+if [ "$1" = "-i" ] && [ -n "$2" ] && [ "${2#-}" = "$2" ]; then
+  shift
+  exec /usr/bin/sed -i '' "$@"
+fi
+exec /usr/bin/sed "$@"

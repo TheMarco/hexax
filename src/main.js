@@ -2,12 +2,14 @@ import { StartGame } from './game/main.js';
 import { createShaderOverlay } from './game/shaderOverlay.js';
 import { SoundEngine } from './game/audio/SoundEngine.js';
 import { initPlayFun } from './game/playfun.js';
+import { initHandheld, isNativePlatform } from './handheld/index.js';
 
 // Wait for fonts (Hyperspace) to load before starting the game
 document.fonts.ready.then(() => {
-  const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  const isNative = isNativePlatform();
+  const isTouchDevice = !isNative && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
 
-  // On mobile, activate cabinet layout before creating the game
+  // On mobile (not handheld), activate cabinet layout before creating the game
   if (isTouchDevice) {
     document.body.classList.add('mobile-mode');
     document.getElementById('mobile-cabinet').style.display = 'block';
@@ -15,9 +17,29 @@ document.fonts.ready.then(() => {
     document.getElementById('shader-toggle').style.display = 'none';
   }
 
-  // Create game — on mobile, parent it inside the cabinet screen area
+  // On native handheld, hide desktop UI elements if they exist
+  if (isNative) {
+    const shaderToggle = document.getElementById('shader-toggle');
+    if (shaderToggle) shaderToggle.style.display = 'none';
+    const mobileCabinet = document.getElementById('mobile-cabinet');
+    if (mobileCabinet) mobileCabinet.style.display = 'none';
+  }
+
+  // Determine container — handheld and desktop use game-container, mobile uses cabinet-screen
   const containerId = isTouchDevice ? 'cabinet-screen' : 'game-container';
-  const game = StartGame(containerId);
+
+  // Initialize handheld runtime (modifies Phaser config on native, no-op on desktop)
+  const game = StartGame(containerId, isNative);
+
+  // Start handheld input bridge (gamepad → synthetic keyboard events)
+  if (isNative) {
+    const handheld = initHandheld({}, {
+      logicalWidth: 768,
+      logicalHeight: 672,
+      scale: 1,
+    });
+    handheld.startInputBridge(game);
+  }
 
   // Initialize Play.fun SDK (only loads when embedded on play.fun)
   initPlayFun();
@@ -37,13 +59,18 @@ document.fonts.ready.then(() => {
   document.addEventListener('click', initAudio);
   document.addEventListener('keydown', initAudio);
 
+  // On native handheld, auto-init audio (no user gesture needed on Android WebView)
+  if (isNative) {
+    soundEngine.init();
+  }
+
   // Apply shader overlay after canvas is ready
   setTimeout(() => {
     const shaderOverlay = createShaderOverlay(game.canvas);
     game.registry.set('shaderOverlay', shaderOverlay);
 
     // Desktop: wire up shader toggle buttons and set initial active state
-    if (!isTouchDevice) {
+    if (!isTouchDevice && !isNative) {
       const currentName = shaderOverlay.getShaderName();
       document.querySelectorAll('#shader-toggle button').forEach(btn => {
         if (btn.dataset.shader === currentName) btn.classList.add('active');
@@ -53,6 +80,27 @@ document.fonts.ready.then(() => {
           shaderOverlay.setShader(btn.dataset.shader);
         });
       });
+    }
+
+    // Gamepad select button (button 8) toggles display mode
+    {
+      let prevSelect = false;
+      const pollSelect = () => {
+        const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+        for (let i = 0; i < gamepads.length; i++) {
+          const gp = gamepads[i];
+          if (!gp) continue;
+          const select = gp.buttons[8]?.pressed || false;
+          if (select && !prevSelect && shaderOverlay) {
+            const next = shaderOverlay.getShaderName() === 'vector' ? 'crt' : 'vector';
+            shaderOverlay.setShader(next);
+          }
+          prevSelect = select;
+          break;
+        }
+        requestAnimationFrame(pollSelect);
+      };
+      requestAnimationFrame(pollSelect);
     }
 
     // Mobile: wire up cabinet touch zones

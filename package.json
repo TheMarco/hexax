@@ -6,10 +6,15 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:ios": "vite build && npx cap sync ios"
+    "build:ios": "vite build && npx cap sync ios",
+    "android:init": "npx cap add android && node scripts/setup-android.cjs",
+    "android:build": "vite build && cp dist/android.html dist/index.html && npx cap sync android",
+    "android:open": "npx cap open android",
+    "android:dev": "npm run android:build && npx cap open android"
   },
   "dependencies": {
     "phaser": "^3.87.0",
+    "@capacitor/android": "^8.0.1",
     "@capacitor/core": "^8.0.1",
     "@capacitor/ios": "^8.0.1",
     "@capacitor/cli": "^8.0.1",

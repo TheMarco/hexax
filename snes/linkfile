@@ -1,0 +1,9 @@
+[objects]
+src/main.obj
+res/soundbank.obj
+data.obj
+hdr.obj
+/Users/marcovhv/pvsneslib/pvsneslib/pvsneslib/lib/LoROM_SlowROM/crt0_snes.obj
+/Users/marcovhv/pvsneslib/pvsneslib/pvsneslib/lib/LoROM_SlowROM/libc.obj
+/Users/marcovhv/pvsneslib/pvsneslib/pvsneslib/lib/LoROM_SlowROM/libm.obj
+/Users/marcovhv/pvsneslib/pvsneslib/pvsneslib/lib/LoROM_SlowROM/libtcc.obj
