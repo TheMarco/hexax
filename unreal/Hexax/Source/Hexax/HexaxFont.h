@@ -63,6 +63,15 @@ namespace HexaxFont
 		case '-': S({{1,3},{3,3}}); break;
 		case '/': S({{0,0},{4,6}}); break;
 		case '+': S({{2,1},{2,5}}); S({{0.5f,3},{3.5f,3}}); break;
+		case '@':
+			S({{4,2},{4,4.5f},{3,6},{1,6},{0,4.5f},{0,1.5f},{1,0},{3,0},{4,1}}); // outer ring (open lower-right)
+			S({{3,2},{3,4},{1.8f,4},{1.3f,3},{1.8f,2},{3,2}});                     // inner 'a' loop
+			S({{3,2},{3.6f,1.4f}});                                                // tail
+			break;
+		case (TCHAR)0x00A9: // copyright ©
+			S({{1,0},{0,1.3f},{0,4.7f},{1,6},{3,6},{4,4.7f},{4,1.3f},{3,0},{1,0}}); // outer ring
+			S({{3,4},{2.4f,4.5f},{1.6f,4.5f},{1.1f,4},{1.1f,2},{1.6f,1.5f},{2.4f,1.5f},{3,2}}); // inner C
+			break;
 		default: break; // space and unknowns: advance only
 		}
 	}

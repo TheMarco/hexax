@@ -47,7 +47,7 @@ namespace HX
 	// ---- Visuals -----------------------------------------------------------
 	constexpr float   ROT_DURATION             = 0.18f;   // seconds for the 60-degree rotation lerp (eased)
 	constexpr float   GLOW_CORE_INTENSITY      = 1.0f;    // per-vertex color scale (hue is carried 0..1; the emissive material multiplies to HDR for bloom)
-	constexpr float   LINE_WIDTH_K            = 0.0024f;  // ribbon half-width as a fraction of distance => ~constant on-screen line width at any depth
+	constexpr float   LINE_WIDTH_K            = 0.0019f;  // ribbon half-width as a fraction of distance => ~constant on-screen line width at any depth
 	constexpr float   GLOW_WIDE_INTENSITY      = 0.6f;    // multiplier on the soft wide pass
 	constexpr float   GLOW_WIDE_THICKNESS      = 6.0f;    // world-space thickness of the wide glow pass
 	// 0 => true 1-pixel vector lines. World-space thickness quads go sub-pixel on
@@ -57,6 +57,11 @@ namespace HX
 	constexpr float   FLASH_DECAY              = 4.0f;    // ring-flash decay per second
 	constexpr float   WOBBLE_DURATION         = 0.15f;
 	constexpr float   WOBBLE_AMPLITUDE        = 0.06f;    // radians
+
+	// Phosphor afterglow: dynamic-object line segments are captured each frame and
+	// replayed with a decaying brightness, like a real vector monitor's persistence.
+	constexpr float   GHOST_PERSIST           = 0.06f;   // afterglow lifetime in seconds
+	constexpr float   GHOST_GAIN              = 0.20f;   // first ghost brightness vs the source line
 
 	// ---- Colors (from config.js COLORS, sRGB hex -> linear) ----------------
 	FORCEINLINE FLinearColor FromHex(uint32 RGB)

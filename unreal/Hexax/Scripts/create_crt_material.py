@@ -67,15 +67,30 @@ for (int j = -1; j <= 2; j++)
     col += c * exp(-(d * d) / (2.0 * sig * sig));
 }
 
-// ---- 3) aperture-grille phosphor mask (subtle vertical RGB triads, 3 device px) ----
-float md = 0.85, ml = 1.12;
-float gx = frac(vp.x * vsize.x / 3.0);
-float3 mask = float3(md, md, md);
-if      (gx < 0.3333) mask.r = ml;
-else if (gx < 0.6666) mask.g = ml;
-else                  mask.b = ml;
-col *= mask;
-col *= 1.18;   // brightboost: compensate mask + scanline energy
+// ---- 2b) halation: warm light scattering through the glass around bright lines ----
+float3 halo = float3(0.0, 0.0, 0.0);
+float2 hpx = 2.0 / vsize;   // tight ~2px sample radius in viewport space
+[unroll]
+for (int hi = 0; hi < 6; hi++)
+{
+    float a = 1.04719755 * float(hi);            // 60-degree ring of taps
+    float2 hq = uv + float2(cos(a), sin(a)) * hpx;
+    float2 hUV = clamp(hq * vsize * binv + rmin * binv, uvLo, uvHi);
+    halo += SceneTextureLookup(hUV, 14, false).rgb;
+}
+halo *= (1.0 / 6.0);
+col += halo * float3(1.0, 0.85, 0.65) * 0.07;    // faint warm phosphor halation (not a blur)
+
+// ---- 3) aperture-grille phosphor mask ----
+// SOFT cosine triad at low depth. The old hard R/G/B thirds tinted each pixel
+// column strongly, which shows as rainbow fringing on thin/sharp vector lines.
+// A smooth, shallow triad keeps a phosphor feel but blends back to white.
+float gp = vp.x * vsize.x * (6.2831853 / 3.0); // one RGB cycle per ~3 device px
+float3 grille = float3(0.5 + 0.5 * cos(gp),
+                       0.5 + 0.5 * cos(gp - 2.0943951),
+                       0.5 + 0.5 * cos(gp + 2.0943951));
+col *= lerp(float3(1.0, 1.0, 1.0), grille * 2.0, 0.10); // 10% tint, average-neutral
+col *= 1.08;   // small brightboost (compensates scanline energy)
 
 // ---- 4) vignette ----
 float2 vu = uv * 2.0 - 1.0;
@@ -84,6 +99,13 @@ col *= 0.32 + 0.68 * saturate(1.0 - dot(vu, vu) * 0.30);
 // ---- 5) gentle flicker + slow rolling refresh bar ----
 col *= 0.975 + 0.025 * sin(t * 9.0);
 col *= 1.0 + 0.015 * sin((uv.y - frac(t * 0.2)) * 6.2831853);
+
+// ---- 6) glass: faint reflection sheen (upper-left) + phosphor grain ----
+float2 gv = uv - float2(0.30, 0.20);
+float sheen = saturate(1.0 - dot(gv, gv) * 3.0);
+col += sheen * sheen * 0.035;
+float grain = frac(sin(dot(floor(uv * vsize * 0.5), float2(12.9898, 78.233)) + t * 53.0) * 43758.5453);
+col *= 0.965 + 0.07 * grain;
 
 return col;
 """

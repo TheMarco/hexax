@@ -13,6 +13,7 @@
 #include "GameFramework/PlayerController.h"
 #include "Engine/Engine.h"
 #include "Engine/PostProcessVolume.h"
+#include "Misc/ConfigCacheIni.h"
 #include "Engine/World.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
@@ -112,6 +113,15 @@ AHexaxPawn::AHexaxPawn()
 	GlowMesh->SetCastShadow(false);
 	GlowMesh->bCastDynamicShadow = false;
 
+	// Textured logo quad for the title screen (own mesh so it can sample the logo texture).
+	LogoMesh = CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("LogoMesh"));
+	LogoMesh->SetupAttachment(SceneRoot);
+	LogoMesh->SetRelativeTransform(FTransform::Identity);
+	LogoMesh->bUseAsyncCooking = false;
+	LogoMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	LogoMesh->SetCastShadow(false);
+	LogoMesh->bCastDynamicShadow = false;
+
 	for (int32 i = 0; i < HX::NUM_SEGMENTS; ++i) { RingFlash[i] = 0.f; }
 }
 
@@ -145,9 +155,9 @@ void AHexaxPawn::BeginPlay()
 	PP.bOverride_AutoExposureMinBrightness = true; PP.AutoExposureMinBrightness = 1.f;
 	PP.bOverride_AutoExposureMaxBrightness = true; PP.AutoExposureMaxBrightness = 1.f;
 	// Big soft bloom — turns the bright lines into glowing neon.
-	PP.bOverride_BloomIntensity = true;   PP.BloomIntensity = 2.6f;
-	PP.bOverride_BloomThreshold = true;   PP.BloomThreshold = 0.25f;
-	PP.bOverride_BloomSizeScale = true;   PP.BloomSizeScale = 8.f;
+	PP.bOverride_BloomIntensity = true;   PP.BloomIntensity = 1.7f;
+	PP.bOverride_BloomThreshold = true;   PP.BloomThreshold = 0.30f;
+	PP.bOverride_BloomSizeScale = true;   PP.BloomSizeScale = 6.f;
 	// Arcade CRT flavour.
 	PP.bOverride_SceneFringeIntensity = true; PP.SceneFringeIntensity = 0.6f; // chromatic aberration (subtle)
 	PP.bOverride_VignetteIntensity = true;    PP.VignetteIntensity = 0.55f;
@@ -192,6 +202,13 @@ void AHexaxPawn::BeginPlay()
 		GlowMesh->SetMaterial(0, GlowMaterial);
 	}
 
+	// Title logo material (additive emissive, samples the imported logo texture).
+	if (UMaterialInterface* LogoMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/UI/M_HexaxLogo.M_HexaxLogo")))
+	{
+		LogoMID = UMaterialInstanceDynamic::Create(LogoMat, this);
+		if (LogoMID && LogoMesh) { LogoMesh->SetMaterial(0, LogoMID); }
+	}
+
 	// Audio (imported by Scripts/import_audio.py into /Game/Audio).
 	auto LoadSnd = [](const TCHAR* Name) -> USoundBase*
 	{
@@ -212,7 +229,8 @@ void AHexaxPawn::BeginPlay()
 	SpiralKillSound = LoadSnd(TEXT("spiral_kill"));
 	PhaseKillSound  = LoadSnd(TEXT("phase_kill"));
 
-	ResetGame();
+	LoadHighScore();
+	EnterTitle();   // boot into the title / attract screen
 }
 
 void AHexaxPawn::ResetGame()
@@ -235,6 +253,9 @@ void AHexaxPawn::ResetGame()
 
 	Explosions.Reset();
 	Shockwaves.Reset();
+	Trails.Reset();
+	bRecordTrails = false;
+	ScreenFlash = 0.f;
 	ShakeAmp = 0.f;
 	bTunnelExploding = false;
 	ExplodeClock = 0.f;
@@ -245,13 +266,45 @@ void AHexaxPawn::ResetGame()
 	MuzzleFlash = 0.f;
 	WarningText.Reset();
 	WarningTimer = 0.f;
+	TitleSpin = 0.f;
 
+	// Silent reset — audio/music belongs to StartGame so the title stays quiet.
 	if (MusicAudio) { MusicAudio->Stop(); MusicAudio = nullptr; }
+}
+
+void AHexaxPawn::StartGame()
+{
+	ResetGame();
+	bTitle = false;
+	bTitleNewHigh = false;
+	if (LogoMesh) { LogoMesh->ClearMeshSection(0); } // hide the title logo during play
 	if (MusicLoop)
 	{
 		MusicAudio = UGameplayStatics::SpawnSound2D(this, MusicLoop, 1.f, 1.f, 0.f, nullptr, false, false);
 	}
 	PlaySound(GetReadySound);
+}
+
+void AHexaxPawn::EnterTitle()
+{
+	ResetGame();        // clears entities/effects and stops music
+	bTitle = true;      // bTitleNewHigh is set by TriggerGameOver and kept until next StartGame
+}
+
+void AHexaxPawn::LoadHighScore()
+{
+	int32 V = 0;
+	if (GConfig) { GConfig->GetInt(TEXT("Hexax"), TEXT("HighScore"), V, GGameUserSettingsIni); }
+	HighScore = FMath::Max(0, V);
+}
+
+void AHexaxPawn::SaveHighScore()
+{
+	if (GConfig)
+	{
+		GConfig->SetInt(TEXT("Hexax"), TEXT("HighScore"), HighScore, GGameUserSettingsIni);
+		GConfig->Flush(false, GGameUserSettingsIni);
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -311,8 +364,11 @@ void AHexaxPawn::Tick(float DeltaSeconds)
 	const float Dt = DeltaSeconds;
 	RenderClock += Dt;
 
+	// Attract screen: keep the tunnel slowly rotating, no simulation.
+	if (bTitle) { TitleSpin += Dt * 0.30f; }
+
 	// --- Fixed-step simulation (the two-timer system) ---
-	if (!State.bGameOver)
+	if (!State.bGameOver && !bTitle)
 	{
 		BulletAccumMs += Dt * 1000.f;
 		int32 Guard = 0;
@@ -364,6 +420,7 @@ void AHexaxPawn::Tick(float DeltaSeconds)
 		if (WobbleElapsed >= HX::WOBBLE_DURATION * 1000.f) bWobble = false;
 	}
 	if (WarningTimer > 0.f) WarningTimer = FMath::Max(0.f, WarningTimer - Dt);
+	if (ScreenFlash > 0.f) ScreenFlash = FMath::Max(0.f, ScreenFlash - Dt / 0.22f); // ~220ms flash
 
 	AdvancePendingKills(Dt);
 	AdvanceDyingSpirals(Dt);
@@ -390,13 +447,27 @@ void AHexaxPawn::Tick(float DeltaSeconds)
 
 void AHexaxPawn::ProcessInput(float Dt)
 {
+	if (bTitle)
+	{
+		// Fire starts a run; other inputs are ignored on the attract screen.
+		bool bFire = false;
+		for (uint8 A : InputQueue) { if (A == 2) { bFire = true; } }
+		InputQueue.Reset();
+		if (bFire) { StartGame(); }
+		return;
+	}
+
 	if (State.bGameOver)
 	{
 		State.GameOverElapsed += Dt * 1000.f;
 		if (bPendingRestart)
 		{
 			bPendingRestart = false;
-			ResetGame();
+			StartGame();                 // Fire -> restart straight into a new run
+		}
+		else if (State.GameOverElapsed >= 6000.f)
+		{
+			EnterTitle();                // idle -> drift back to the attract screen
 		}
 		InputQueue.Reset();
 		return;
@@ -580,6 +651,8 @@ void AHexaxPawn::DrainCollisionEvents()
 		const FVector P = EntityWorld(H.Lane, H.VisualDepth);
 		SpawnExplosionAt(P, H.Color);
 		PlaySound(H.bHeart ? HeartSound : KillSoundForType(H.EntityType, false));
+		// Bomb detonation -> screen-wide brightness flash.
+		if (H.EntityType == EHexaxType::Bomb) { ScreenFlash = 1.0f; }
 	}
 	Collision.HitEvents.Reset();
 
@@ -636,20 +709,35 @@ void AHexaxPawn::SpawnExplosionAt(const FVector& WorldPos, const FLinearColor& C
 	Ex.Life = (BiasAmt > 0.f) ? 1.3f : 0.95f; // tunnel debris lingers a bit longer
 	Ex.Elapsed = 0.f;
 	const FVector BiasN = Bias.GetSafeNormal();
-	const int32 N = 46;
+	// Main debris burst — wide speed range gives both fast streaks and lingering embers.
+	const int32 N = 80;
 	for (int32 i = 0; i < N; ++i)
 	{
 		// Optional directional bias makes shards spray a particular way (e.g. the
 		// tunnel blowing outward toward the viewer) instead of a uniform burst.
 		const FVector Dir = (BiasAmt > 0.f) ? (FMath::VRand() + BiasN * BiasAmt).GetSafeNormal() : FMath::VRand();
-		const float Speed = FMath::FRandRange(220.f, 850.f) * ((BiasAmt > 0.f) ? 1.5f : 1.f);
+		const float Speed = FMath::FRandRange(180.f, 1150.f) * ((BiasAmt > 0.f) ? 1.5f : 1.f);
 		FHexaxParticle Pt;
-		Pt.Pos = WorldPos + Dir * FMath::FRandRange(0.f, 18.f);
+		Pt.Pos = WorldPos + Dir * FMath::FRandRange(0.f, 16.f);
 		Pt.Vel = Dir * Speed;
-		Pt.Half = FMath::VRand() * FMath::FRandRange(9.f, 26.f); // shard length + orientation
+		Pt.Half = FMath::VRand() * FMath::FRandRange(7.f, 30.f); // shard length + orientation
 		Pt.SpinAxis = FMath::VRand();
-		Pt.SpinRate = FMath::FRandRange(-16.f, 16.f);
-		Pt.Color = Color * FMath::FRandRange(0.7f, 1.2f);
+		Pt.SpinRate = FMath::FRandRange(-20.f, 20.f);
+		Pt.Color = Color * FMath::FRandRange(0.7f, 1.4f);
+		Ex.Particles.Add(Pt);
+	}
+	// White-hot core sparks: very fast, very bright, streaked along their travel -> the flash.
+	const FLinearColor Hot = FMath::Lerp(Color, FLinearColor::White, 0.7f) * 2.4f;
+	for (int32 i = 0; i < 16; ++i)
+	{
+		const FVector Dir = (BiasAmt > 0.f) ? (FMath::VRand() + BiasN * BiasAmt).GetSafeNormal() : FMath::VRand();
+		FHexaxParticle Pt;
+		Pt.Pos = WorldPos + Dir * FMath::FRandRange(0.f, 6.f);
+		Pt.Vel = Dir * FMath::FRandRange(750.f, 1500.f);
+		Pt.Half = Dir * FMath::FRandRange(16.f, 38.f); // streak aligned with velocity
+		Pt.SpinAxis = FMath::VRand();
+		Pt.SpinRate = 0.f;
+		Pt.Color = Hot;
 		Ex.Particles.Add(Pt);
 	}
 	Explosions.Add(MoveTemp(Ex));
@@ -724,6 +812,15 @@ void AHexaxPawn::TriggerGameOver()
 {
 	State.bGameOver = true;
 	State.GameOverElapsed = 0.f;
+
+	// New high score? Persist it and flag the celebration for the title screen.
+	if (State.Score > HighScore)
+	{
+		HighScore = State.Score;
+		State.bNewHighScore = true;
+		bTitleNewHigh = true;
+		SaveHighScore();
+	}
 	if (MusicAudio) { MusicAudio->Stop(); }
 	PlaySound(DeathSound);
 	AddShake(1.f);
@@ -789,12 +886,12 @@ void AHexaxPawn::ShowWarning(const FString& Text, float Seconds)
 // ---------------------------------------------------------------------------
 float AHexaxPawn::RenderLaneFloat(int32 LogicalLane) const
 {
-	return ((float)LogicalLane - (float)State.WorldRot) + RotAnimOffset;
+	return ((float)LogicalLane - (float)State.WorldRot) + RotAnimOffset + TitleSpin;
 }
 
 float AHexaxPawn::RenderLaneFloatF(float LogicalC) const
 {
-	return (LogicalC - (float)State.WorldRot) + RotAnimOffset;
+	return (LogicalC - (float)State.WorldRot) + RotAnimOffset + TitleSpin;
 }
 
 FVector AHexaxPawn::TunnelVertexWorld(float Depth, int32 K) const
@@ -816,6 +913,16 @@ FVector AHexaxPawn::EntityWorld(int32 LogicalLane, float VisualDepth, float Radi
 // ---------------------------------------------------------------------------
 void AHexaxPawn::GlowLine(const FVector& A, const FVector& B, const FLinearColor& Base, float Intensity)
 {
+	// Phosphor afterglow: while drawing dynamic objects, remember the logical line
+	// so it can be replayed (decaying) over the next frames as a glowing trail.
+	if (bRecordTrails)
+	{
+		Trails.Add(FHexaxGhostSeg{ A, B, Base, Intensity, 1.f });
+	}
+
+	// Global brightness flash (e.g. bomb chain) brightens + blooms everything briefly.
+	Intensity *= (1.f + ScreenFlash);
+
 	// Emit a camera-facing ribbon quad (two triangles) into the glow mesh. The
 	// ribbon half-width scales with distance so the on-screen width is ~constant
 	// at any depth (no sub-pixel dropouts), and the emissive material blooms it.
@@ -985,23 +1092,159 @@ void AHexaxPawn::DrawPuckLP(const FVector& Center, float AngleDeg, float Radius,
 	DrawCylinderBetween(Outer, Inner, Radius, 12, Color, Intensity, bDashed ? 2 : 1);
 }
 
+void AHexaxPawn::DrawHeartLP(const FVector& Center, float AngleDeg, float Radius, const FLinearColor& Color, float Intensity)
+{
+	// Same idea as the puck: a flat shape on the wall extruded toward the tube
+	// centre, with rim outlines + connecting ribs. Cross-section is a heart curve
+	// lying in the wall plane (width around the ring, height down the tube).
+	const float a = FMath::DegreesToRadians(AngleDeg);
+	const FVector Rad  (0.f, FMath::Cos(a),  FMath::Sin(a)); // outward (extrusion axis)
+	const FVector Tang (0.f, -FMath::Sin(a), FMath::Cos(a)); // around the ring -> heart width
+	const FVector Axial(1.f, 0.f, 0.f);                      // down the tube  -> heart height
+	const FVector Outer = Center;
+	const FVector Inner = Center - Rad * (Radius * 0.55f);
+	const float Sc = Radius / 15.f;
+	const int32 Steps = 26;
+	TArray<FVector> O, I; O.Reserve(Steps + 1); I.Reserve(Steps + 1);
+	for (int32 s = 0; s <= Steps; ++s)
+	{
+		const float t  = (2.f * PI * s) / Steps;
+		const float hx = 16.f * FMath::Pow(FMath::Sin(t), 3.f);
+		const float hy = 13.f * FMath::Cos(t) - 5.f * FMath::Cos(2.f*t) - 2.f * FMath::Cos(3.f*t) - FMath::Cos(4.f*t);
+		const FVector Off = Tang * (hx * Sc) + Axial * ((hy + 2.5f) * Sc); // +2.5 centres the curve
+		O.Add(Outer + Off);
+		I.Add(Inner + Off);
+	}
+	for (int32 s = 0; s < Steps; ++s)
+	{
+		GlowLine(O[s], O[s + 1], Color, Intensity);          // outer rim (on the wall)
+		GlowLine(I[s], I[s + 1], Color, Intensity * 0.85f);  // inner rim (toward centre)
+		if (s % 2 == 0) { GlowLine(O[s], I[s], Color, Intensity * 0.9f); } // rib
+	}
+}
+
+void AHexaxPawn::DrawAndAgeTrails(float Dt)
+{
+	// Replay each captured dynamic segment dimmer than the source (GHOST_GAIN) and
+	// fading over GHOST_PERSIST seconds, then age it out. bRecordTrails is false
+	// here, so replaying does not re-capture.
+	const float Fade = (HX::GHOST_PERSIST > 0.f) ? (Dt / HX::GHOST_PERSIST) : 1.f;
+	for (int32 i = Trails.Num() - 1; i >= 0; --i)
+	{
+		FHexaxGhostSeg& G = Trails[i];
+		GlowLine(G.A, G.B, G.Color, G.Intensity * G.Life * HX::GHOST_GAIN);
+		G.Life -= Fade;
+		if (G.Life <= 0.f) { Trails.RemoveAtSwap(i); }
+	}
+}
+
+void AHexaxPawn::DrawTitle()
+{
+	if (!Camera) return;
+
+	// Same screen-locked projection the HUD uses: place text on a plane in front
+	// of the camera. sx,sy ~ [-1,1] across the view; sy>0 is up.
+	const FTransform CamX = Camera->GetComponentTransform();
+	const float D = 120.f, HXs = D, VZs = D * 0.75f, AX = VZs / HXs;
+	auto Pt = [&](float sx, float sy) -> FVector
+	{
+		return CamX.TransformPosition(FVector(D, sx * HXs, sy * VZs));
+	};
+	auto TextW = [&](const FString& S, float ch) -> float
+	{
+		return S.Len() * HexaxFont::ADV * (ch / HexaxFont::GH) * AX;
+	};
+	auto Text = [&](const FString& S, float cx, float sy, float ch, const FLinearColor& Col, float Inten)
+	{
+		const float Scale = ch / HexaxFont::GH;
+		for (int32 i = 0; i < S.Len(); ++i)
+		{
+			TArray<TArray<FVector2D>> G;
+			HexaxFont::Glyph(FChar::ToUpper(S[i]), G);
+			for (const TArray<FVector2D>& Poly : G)
+			{
+				for (int32 p = 0; p + 1 < Poly.Num(); ++p)
+				{
+					GlowLine(Pt(cx + Poly[p].X * Scale * AX, sy + Poly[p].Y * Scale),
+					         Pt(cx + Poly[p + 1].X * Scale * AX, sy + Poly[p + 1].Y * Scale), Col, Inten);
+				}
+			}
+			cx += HexaxFont::ADV * Scale * AX;
+		}
+	};
+	auto TextC = [&](const FString& S, float sy, float ch, const FLinearColor& Col, float Inten)
+	{
+		Text(S, -TextW(S, ch) * 0.5f, sy, ch, Col, Inten);
+	};
+
+	const FLinearColor Active = HX::ActiveLane();
+
+	// Original logo as an additive emissive quad (blooms + runs through the CRT).
+	// Aspect 2752:1536 -> h = w / (A * VZs/HXs); centred in the upper area.
+	if (LogoMesh && LogoMID)
+	{
+		const float LW = 0.52f, LH = 0.387f, LCY = 0.34f;
+		TArray<FVector>          LV  = { Pt(-LW, LCY - LH), Pt(LW, LCY - LH), Pt(LW, LCY + LH), Pt(-LW, LCY + LH) };
+		TArray<int32>            LT  = { 0, 1, 2, 0, 2, 3 };
+		TArray<FVector2D>        LUV = { FVector2D(0,1), FVector2D(1,1), FVector2D(1,0), FVector2D(0,0) };
+		TArray<FVector>          LN;
+		TArray<FLinearColor>     LC;
+		TArray<FProcMeshTangent> LTan;
+		LogoMesh->CreateMeshSection_LinearColor(0, LV, LT, LN, LUV, LC, LTan, false);
+		LogoMID->SetScalarParameterValue(TEXT("Intensity"), 1.5f + 0.25f * FMath::Sin(RenderClock * 3.0f));
+	}
+
+	// High score (top).
+	TextC(FString::Printf(TEXT("HIGH SCORE  %d"), HighScore), 0.88f, 0.045f, Active, 1.0f);
+
+	// New-record celebration after a strong run.
+	if (bTitleNewHigh)
+	{
+		const float NH = 0.6f + 0.4f * FMath::Abs(FMath::Sin(RenderClock * 6.0f));
+		TextC(TEXT("NEW HIGH SCORE!"), -0.20f, 0.05f, HX::Heart(), 1.3f * NH);
+	}
+
+	// Prompts (bottom).
+	const float PromptA = 0.45f + 0.55f * FMath::Abs(FMath::Sin(RenderClock * 2.5f));
+	TextC(TEXT("PRESS SPACE TO START"), -0.42f, 0.05f, Active, 1.2f * PromptA);
+	TextC(TEXT("PRESS 1 TO TOGGLE CRT MODE"), -0.55f, 0.038f, Active, 0.7f);
+
+	// Credit line.
+	TextC(TEXT("\u00A9 2026 BY MARCO VAN HYLCKAMA VLIEG - AI-CREATED.COM"), -0.80f, 0.030f, HX::Tunnel() * 0.7f, 0.7f);
+}
+
 void AHexaxPawn::Render(float Dt)
 {
 	MeshVerts.Reset();
 	MeshTris.Reset();
 	MeshColors.Reset();
 
-	DrawTunnel();
-	DrawDamagedSegments();
-	if (!State.bGameOver)
+	if (bTitle)
 	{
-		DrawEntities();
-		DrawGhostBullets();
-		DrawShip();
+		DrawTunnel();   // slowly spinning attract backdrop (driven by TitleSpin)
+		DrawTitle();    // logo, high score, pulsing prompt
 	}
-	DrawExplosions();
-	DrawShockwaves();
-	DrawHud();
+	else
+	{
+		DrawTunnel();
+		DrawDamagedSegments();
+
+		// Phosphor afterglow sits behind the live dynamic objects: replay the decaying
+		// ghosts from previous frames, then capture this frame's dynamic draws.
+		DrawAndAgeTrails(Dt);
+		bRecordTrails = true;
+		if (!State.bGameOver)
+		{
+			DrawEntities();
+			DrawGhostBullets();
+			DrawShip();
+		}
+		DrawExplosions();
+		bRecordTrails = false;
+
+		DrawShockwaves();
+		DrawHud();
+	}
 
 	// Rebuild the emissive ribbon mesh for this frame.
 	static const TArray<FVector> NoNormals;
@@ -1012,8 +1255,19 @@ void AHexaxPawn::Render(float Dt)
 
 void AHexaxPawn::DrawTunnel()
 {
-	const FLinearColor TunnelCol = HX::Tunnel();          // uniform bright cyan, like the original
+	// Score multiplier "heats" the tunnel: shift the green toward a charged
+	// cyan-white and brighten as the multiplier climbs (1x -> 4x). A gentle
+	// rhythmic breathe pulses the whole tunnel's glow.
+	const float Heat = FMath::Clamp((State.ScoreMultiplier - 1.f) / 3.f, 0.f, 1.f);
+	const FLinearColor TunnelCol = FMath::Lerp(HX::Tunnel(), FLinearColor(0.70f, 1.0f, 1.0f), Heat * 0.55f);
 	const FLinearColor ActiveCol = HX::ActiveLane();
+	const float Breathe   = 1.f + 0.05f * FMath::Sin(RenderClock * 7.5f); // ~1.2 Hz glow pulse
+	const float TitleDim  = bTitle ? 0.0f : 1.f;   // tunnel hidden on the title (logo on black)
+	const float TunnelInt = Breathe * (1.f + Heat * 0.40f) * TitleDim;
+
+	// Depth atmosphere: far rings fade toward a cool blue haze and dim, so the
+	// tunnel recedes into a glowing infinity (atmospheric perspective).
+	const FLinearColor HazeCol = FLinearColor(0.25f, 0.45f, 1.0f);
 
 	// Whole wireframe carries the world rotation, so rotating spins the TUNNEL
 	// (the ship stays pinned at the bottom). Rings + longitudinal lane lines.
@@ -1025,10 +1279,13 @@ void AHexaxPawn::DrawTunnel()
 			const FVector A = TunnelVertexWorld((float)d, k);
 			const FVector B = TunnelVertexWorld((float)d, (k + 1) % HX::NUM_LANES);
 			const float Flash = RingFlash[FMath::Clamp(d, 0, HX::NUM_SEGMENTS - 1)];
-			GlowLine(A, B, TunnelCol + HX::Tunnel() * Flash); // ring edge
+			const float Df = (float)d / (float)HX::MAX_DEPTH;                       // 0 near .. 1 far
+			const FLinearColor DepthCol = FMath::Lerp(TunnelCol, HazeCol, Df * 0.5f);
+			const float DepthInt = TunnelInt * (1.f - Df * 0.35f);
+			GlowLine(A, B, DepthCol + HX::Tunnel() * Flash, DepthInt); // ring edge
 			if (d < HX::MAX_DEPTH)
 			{
-				GlowLine(A, TunnelVertexWorld((float)(d + 1), k), TunnelCol); // lane line
+				GlowLine(A, TunnelVertexWorld((float)(d + 1), k), DepthCol, DepthInt); // lane line
 			}
 		}
 	}
@@ -1042,11 +1299,14 @@ void AHexaxPawn::DrawTunnel()
 		if (State.bGameOver && d < ExplodeNextRing) continue; // bottom segment blows apart too
 		const FVector L = HexaxGeo::OnTube((float)d, AngL, HX::TUBE_RADIUS);
 		const FVector R = HexaxGeo::OnTube((float)d, AngR, HX::TUBE_RADIUS);
-		GlowLine(L, R, ActiveCol, 0.6f); // bright bottom edge
+		const float Adf = (float)d / (float)HX::MAX_DEPTH;
+		const FLinearColor ActiveDepth = FMath::Lerp(ActiveCol, HazeCol, Adf * 0.4f);
+		const float ActiveInt = 0.6f * Breathe * (1.f - Adf * 0.35f) * TitleDim;
+		GlowLine(L, R, ActiveDepth, ActiveInt); // bright bottom edge
 		if (d < HX::MAX_DEPTH)
 		{
-			GlowLine(L, HexaxGeo::OnTube((float)(d + 1), AngL, HX::TUBE_RADIUS), ActiveCol, 0.6f);
-			GlowLine(R, HexaxGeo::OnTube((float)(d + 1), AngR, HX::TUBE_RADIUS), ActiveCol, 0.6f);
+			GlowLine(L, HexaxGeo::OnTube((float)(d + 1), AngL, HX::TUBE_RADIUS), ActiveDepth, ActiveInt);
+			GlowLine(R, HexaxGeo::OnTube((float)(d + 1), AngR, HX::TUBE_RADIUS), ActiveDepth, ActiveInt);
 		}
 	}
 }
@@ -1129,30 +1389,34 @@ void AHexaxPawn::DrawEntities()
 		const float a1 = HexaxGeo::LaneCenterAngleDeg(Lf - 0.5f);
 		const float aM = HexaxGeo::LaneCenterAngleDeg(Lf + 0.5f);
 		const float a3 = HexaxGeo::LaneCenterAngleDeg(Lf + 1.5f);
-		const float aMid = FMath::DegreesToRadians(HexaxGeo::LaneCenterAngleDeg(Lf + 0.5f));
-		const FVector In(0.f, -FMath::Cos(aMid), -FMath::Sin(aMid));
 		const float DB = VD + HX::WALL_Z_THICKNESS;
 		const FLinearColor Col = (W->HitFlash > 0.f) ? FMath::Lerp(HX::Wall(), HX::Tunnel(), W->HitFlash) : HX::Wall();
 		const float Ig = 1.f + W->HitFlash;
 
+		// Per-vertex inward (radial) so the raised ridge follows the hex bend — this
+		// makes it read as TWO wall slabs meeting at the middle seam, not a triangle.
+		auto InAt = [](float Deg) { const float r = FMath::DegreesToRadians(Deg); return FVector(0.f, -FMath::Cos(r), -FMath::Sin(r)); };
+		const FVector In1 = InAt(a1), InM = InAt(aM), In3 = InAt(a3);
+
 		const FVector fO1 = HexaxGeo::OnTube(VD, a1, HX::TUBE_RADIUS);
 		const FVector fOM = HexaxGeo::OnTube(VD, aM, HX::TUBE_RADIUS);
 		const FVector fO3 = HexaxGeo::OnTube(VD, a3, HX::TUBE_RADIUS);
-		const FVector fI1 = fO1 + In * WH, fI3 = fO3 + In * WH;
-		const FVector bI1 = HexaxGeo::OnTube(DB, a1, HX::TUBE_RADIUS) + In * WH;
-		const FVector bI3 = HexaxGeo::OnTube(DB, a3, HX::TUBE_RADIUS) + In * WH;
+		const FVector fI1 = fO1 + In1 * WH, fIM = fOM + InM * WH, fI3 = fO3 + In3 * WH;
+		const FVector bI1 = HexaxGeo::OnTube(DB, a1, HX::TUBE_RADIUS) + In1 * WH;
+		const FVector bIM = HexaxGeo::OnTube(DB, aM, HX::TUBE_RADIUS) + InM * WH;
+		const FVector bI3 = HexaxGeo::OnTube(DB, a3, HX::TUBE_RADIUS) + In3 * WH;
 
-		GlowLine(fO1, fOM, Col, Ig); GlowLine(fOM, fO3, Col, Ig);   // outer base (2 segments)
-		GlowLine(fO3, fI3, Col, Ig); GlowLine(fI3, fI1, Col, Ig);   // right, top ridge
-		GlowLine(fI1, fO1, Col, Ig);                                // left
-		GlowLine(fI1, bI1, Col, Ig); GlowLine(fI3, bI3, Col, Ig);   // depth edges
-		GlowLine(bI1, bI3, Col, Ig);                                // back ridge
+		GlowLine(fO1, fOM, Col, Ig); GlowLine(fOM, fO3, Col, Ig);                       // outer base (2 faces)
+		GlowLine(fI1, fIM, Col, Ig); GlowLine(fIM, fI3, Col, Ig);                       // top ridge follows the bend
+		GlowLine(fO1, fI1, Col, Ig); GlowLine(fOM, fIM, Col, Ig); GlowLine(fO3, fI3, Col, Ig); // verticals + middle seam
+		GlowLine(fI1, bI1, Col, Ig); GlowLine(fIM, bIM, Col, Ig); GlowLine(fI3, bI3, Col, Ig); // depth edges
+		GlowLine(bI1, bIM, Col, Ig); GlowLine(bIM, bI3, Col, Ig);                       // back ridge
 		if (W->HitFlash > 0.f) // crackling lightning across the struck span
 		{
 			const float LI = (0.5f + W->HitFlash) * 1.5f;
 			const float Amp = HX::TUBE_RADIUS * 0.05f;
-			DrawLightning(fO1, fI3, FLinearColor::White, LI, Amp, 8);
-			DrawLightning(fO3, fI1, HX::Tunnel(),        LI, Amp, 8);
+			DrawLightning(fO1, fIM, FLinearColor::White, LI, Amp, 7);
+			DrawLightning(fOM, fI3, HX::Tunnel(),        LI, Amp, 7);
 			DrawLightning(fI1, fI3, FLinearColor::White, LI, Amp * 0.7f, 7);
 		}
 		W->HitFlash = FMath::Max(0.f, W->HitFlash - HX::FLASH_DECAY * (1.f / 60.f));
@@ -1226,19 +1490,8 @@ void AHexaxPawn::DrawEntities()
 			break;
 
 		case EHexaxType::Heart:
-		{
-			TArray<FVector> Pts;
-			const int32 Steps = 22;
-			for (int32 s = 0; s <= Steps; ++s)
-			{
-				const float t = (2.f * PI * s) / Steps;
-				const float hx = 16.f * FMath::Pow(FMath::Sin(t), 3.f);
-				const float hy = 13.f * FMath::Cos(t) - 5.f * FMath::Cos(2*t) - 2.f * FMath::Cos(3*t) - FMath::Cos(4*t);
-				Pts.Add(C + FVector(0.f, hx * (Sz / 32.f), hy * (Sz / 32.f)));
-			}
-			GlowPolyYZ(Pts, HX::Heart(), false, 1.3f);
+			DrawHeartLP(C, Angle, Sz * 0.5f, HX::Heart(), 1.3f); // flat on the wall, like the puck
 			break;
-		}
 
 		case EHexaxType::Phase:
 		{
@@ -1278,14 +1531,29 @@ void AHexaxPawn::DrawEntities()
 
 void AHexaxPawn::DrawBolt(int32 Lane, float VisualDepth, float Intensity)
 {
-	const float Ang = HexaxGeo::LaneCenterAngleDeg(RenderLaneFloat(Lane));
-	const FVector Tip  = HexaxGeo::OnTube(VisualDepth + 0.12f, Ang, HX::TUBE_RADIUS);
-	const FVector Neck = HexaxGeo::OnTube(FMath::Max(0.f, VisualDepth - 0.12f), Ang, HX::TUBE_RADIUS);
+	const float LaneF = RenderLaneFloat(Lane);
+	const float Ang = HexaxGeo::LaneCenterAngleDeg(LaneF);
+
+	// Origin the bolt at the gun muzzle (bottom-edge midpoint of the depth-0 face,
+	// raised to the barrel tip — matches DrawShip), blending back to the lane path
+	// as it flies inward so it emerges from inside the gun, not below the rim line.
+	FVector Radial, Tangent; HexaxGeo::Basis(Ang, Radial, Tangent);
+	const FVector Inward = -Radial;
+	const FVector EdgeMid = (HexaxGeo::OnTube(0.f, HexaxGeo::LaneCenterAngleDeg(LaneF - 0.5f), HX::TUBE_RADIUS)
+	                       + HexaxGeo::OnTube(0.f, HexaxGeo::LaneCenterAngleDeg(LaneF + 0.5f), HX::TUBE_RADIUS)) * 0.5f;
+	const FVector Muzzle = EdgeMid + Inward * (HX::ENTITY_SIZE * 0.29f); // platH+bodyH+barH
+	const FVector Off0 = Muzzle - HexaxGeo::OnTube(0.f, Ang, HX::TUBE_RADIUS);
+	auto Pos = [&](float d) -> FVector
+	{
+		const float dd = FMath::Max(0.f, d);
+		const float fade = FMath::Clamp(1.f - dd / 0.8f, 0.f, 1.f); // muzzle correction fades out by depth 0.8
+		return HexaxGeo::OnTube(dd, Ang, HX::TUBE_RADIUS) + Off0 * fade;
+	};
 
 	// Hot core — bright, blooms into a glowing dart head.
-	GlowLine(Neck, Tip, HX::Bullet(), Intensity * 2.6f);
+	GlowLine(Pos(VisualDepth - 0.12f), Pos(VisualDepth + 0.12f), HX::Bullet(), Intensity * 2.6f);
 
-	// Tapered fading trail streaking back toward the player.
+	// Tapered fading trail streaking back toward the muzzle.
 	const int32 TN = 6;
 	const float Seg = 0.18f;
 	for (int32 i = 0; i < TN; ++i)
@@ -1294,9 +1562,7 @@ void AHexaxPawn::DrawBolt(int32 Lane, float VisualDepth, float Intensity)
 		const float B = VisualDepth - 0.12f - (i + 1) * Seg;
 		if (A <= 0.f) break;
 		const float Fade = (1.f - (float)i / TN) * 0.5f;
-		GlowLine(HexaxGeo::OnTube(FMath::Max(0.f, B), Ang, HX::TUBE_RADIUS),
-		         HexaxGeo::OnTube(FMath::Max(0.f, A), Ang, HX::TUBE_RADIUS),
-		         HX::Bullet(), Intensity * Fade);
+		GlowLine(Pos(B), Pos(A), HX::Bullet(), Intensity * Fade);
 	}
 }
 
@@ -1335,28 +1601,44 @@ void AHexaxPawn::DrawGhostBullets()
 
 void AHexaxPawn::DrawShip()
 {
-	// Small turret sitting ON the bottom rim of the mouth ring (does not rotate).
-	const float Ang = HexaxGeo::LaneCenterAngleDeg(0.f);
+	// Turret sitting ON the bottom rim line (the flat hex edge of the mouth ring).
+	const float Ang  = HexaxGeo::LaneCenterAngleDeg(0.f);
 	FVector Radial, Tangent;
 	HexaxGeo::Basis(Ang, Radial, Tangent);
-	const FVector Inward = -Radial; // up into the tube at the bottom
-	const FVector Rim = HexaxGeo::OnTube(0.f, Ang, HX::TUBE_RADIUS);
-	const float w = HX::ENTITY_SIZE * 0.17f;
-	const float h = HX::ENTITY_SIZE * 0.15f;
-	const FLinearColor Col = HX::Ship() * (1.8f + MuzzleFlash * 3.f);
+	const FVector Inward = -Radial; // up into the tube
 
-	// trapezoid turret base — wider on the rim, narrower above
-	const FVector BL = Rim - Tangent * w;
-	const FVector BR = Rim + Tangent * w;
-	const FVector TL = Rim + Inward * h - Tangent * (w * 0.55f);
-	const FVector TR = Rim + Inward * h + Tangent * (w * 0.55f);
-	GlowLine(BL, BR, Col, 1.4f);
-	GlowLine(BL, TL, Col, 1.4f);
-	GlowLine(BR, TR, Col, 1.4f);
-	GlowLine(TL, TR, Col, 1.4f);
-	// short barrel nub
-	const FVector Mid = Rim + Inward * h;
-	GlowLine(Mid, Mid + Inward * (h * 0.8f), Col, 1.7f);
+	// Anchor to the MIDPOINT of the bottom edge (where the red line is), not the
+	// face-centre direction at radius R (which lands outside the flat edge -> below).
+	const float AngL = HexaxGeo::LaneCenterAngleDeg(-0.5f);
+	const float AngR = HexaxGeo::LaneCenterAngleDeg(0.5f);
+	const FVector OnLine = (HexaxGeo::OnTube(0.f, AngL, HX::TUBE_RADIUS)
+	                      + HexaxGeo::OnTube(0.f, AngR, HX::TUBE_RADIUS)) * 0.5f;
+
+	const FLinearColor Col = HX::Ship() * (1.8f + MuzzleFlash * 3.f);
+	const float w     = HX::ENTITY_SIZE * 0.150f;  // base half-width
+	const float platH = HX::ENTITY_SIZE * 0.045f;  // base platform height
+	const float bodyH = HX::ENTITY_SIZE * 0.085f;  // tapered body height
+	const float barH  = HX::ENTITY_SIZE * 0.160f;  // barrel length
+	const float shW   = w * 0.42f;                 // shoulder / barrel-base half-width
+	const float tipW  = w * 0.13f;                 // barrel tip half-width (thin)
+
+	auto P = [&](float side, float up) { return OnLine + Tangent * side + Inward * up; };
+
+	// Base platform (rests on the line)
+	const FVector A1 = P(-w, 0.f),      A2 = P(w, 0.f);
+	const FVector A3 = P(w, platH),     A4 = P(-w, platH);
+	GlowLine(A1, A2, Col, 1.4f); GlowLine(A2, A3, Col, 1.4f);
+	GlowLine(A3, A4, Col, 1.4f); GlowLine(A4, A1, Col, 1.4f);
+
+	// Tapered body: platform-top corners angle inward to the shoulder
+	const FVector S1 = P(-shW, platH + bodyH), S2 = P(shW, platH + bodyH);
+	GlowLine(A4, S1, Col, 1.4f); GlowLine(A3, S2, Col, 1.4f);
+	GlowLine(S1, S2, Col, 1.4f);
+
+	// Slim tapered barrel up to a thin muzzle
+	const FVector T1 = P(-tipW, platH + bodyH + barH), T2 = P(tipW, platH + bodyH + barH);
+	GlowLine(S1, T1, Col, 1.6f); GlowLine(S2, T2, Col, 1.6f);
+	GlowLine(T1, T2, Col, 1.6f + MuzzleFlash * 2.f); // muzzle (flares when firing)
 }
 
 void AHexaxPawn::DrawExplosions()

@@ -52,6 +52,16 @@ struct FHexaxShockwave
 	float        MaxRadius = 130.f;
 };
 
+/** A dynamic-object line segment captured for phosphor afterglow (replayed decaying). */
+struct FHexaxGhostSeg
+{
+	FVector      A;
+	FVector      B;
+	FLinearColor Color;
+	float        Intensity = 1.f;
+	float        Life      = 1.f;   // 1 -> 0 over GHOST_PERSIST seconds
+};
+
 /**
  * The whole game lives on this pawn — the Unreal analogue of GameScene.js.
  * It owns the pure-logic state/systems, drives the two fixed-step timers via
@@ -103,6 +113,8 @@ private:
 	UPROPERTY() UCameraComponent* Camera = nullptr;
 	UPROPERTY() ULineBatchComponent* Lines = nullptr;
 	UPROPERTY() UProceduralMeshComponent* GlowMesh = nullptr;
+	UPROPERTY() UProceduralMeshComponent* LogoMesh = nullptr; // title logo quad
+	UPROPERTY() UMaterialInstanceDynamic* LogoMID  = nullptr; // logo material (pulse intensity)
 	UPROPERTY() UMaterialInterface* GlowMaterial = nullptr;
 	UPROPERTY() UAudioComponent* MusicAudio = nullptr;
 
@@ -133,7 +145,7 @@ private:
 
 	// CRT post-process (toggled with the 1 key)
 	UPROPERTY() UMaterialInstanceDynamic* CRTDynamic = nullptr;
-	bool bCRTOn = false; // off by default; press 1 to enable
+	bool bCRTOn = true; // CRT on by default; press 1 to toggle
 
 	// --- Simulation ---
 	FHexaxState            State;
@@ -163,6 +175,18 @@ private:
 	float WobbleElapsed  = 0.f;
 	float WobbleAmp      = HX::WOBBLE_AMPLITUDE;
 	float MuzzleFlash    = 0.f;
+	float ScreenFlash    = 0.f;   // bomb-chain global brightness flash, decays to 0
+
+	// --- Front end (title / attract) ---
+	bool  bTitle         = true;  // boot into the title/attract screen
+	float TitleSpin      = 0.f;   // continuous attract-mode tunnel rotation (lane units)
+	int32 HighScore      = 0;     // persisted best score
+	bool  bTitleNewHigh  = false; // celebrate a fresh record on the title after a run
+
+	// Phosphor afterglow: dynamic-object segments captured this frame (when
+	// bRecordTrails is true) and replayed with decay over the next frames.
+	bool  bRecordTrails  = false;
+	TArray<FHexaxGhostSeg> Trails;
 
 	// --- HUD transient text ---
 	FString WarningText;
@@ -188,6 +212,10 @@ private:
 	void AdvanceDyingSpirals(float Dt);
 	void UpdateExplosions(float Dt);
 	void ResetGame();
+	void StartGame();        // leave the title and begin a run (audio + music)
+	void EnterTitle();       // (re)enter the title/attract screen
+	void LoadHighScore();    // read persisted high score (GConfig)
+	void SaveHighScore();    // persist high score (GConfig)
 
 	// --- Effects ---
 	void SpawnExplosionAt(const FVector& WorldPos, const FLinearColor& Color, const FVector& Bias = FVector::ZeroVector, float BiasAmt = 0.f);
@@ -199,6 +227,8 @@ private:
 
 	// --- Rendering ---
 	void Render(float Dt);
+	void DrawTitle();                // title / attract overlay (logo, high score, prompt)
+	void DrawAndAgeTrails(float Dt); // replay + decay captured dynamic-object afterglow
 	void DrawTunnel();
 	void DrawDamagedSegments();
 	void DrawEntities();
@@ -223,6 +253,9 @@ private:
 
 	// Low-poly hockey puck lying on the tunnel wall, oriented to its lane.
 	void DrawPuckLP(const FVector& Center, float AngleDeg, float Radius, const FLinearColor& Color, float Intensity = 1.f, bool bDashed = false);
+
+	// Heart laid flat on the tunnel wall (like the puck): two heart rims + ribs.
+	void DrawHeartLP(const FVector& Center, float AngleDeg, float Radius, const FLinearColor& Color, float Intensity = 1.f);
 
 	// 3D glyph helpers (front+back faces so perspective foreshortens them)
 	void GlowDisc3D(float Depth, float AngleDeg, float Radius, const FLinearColor& Color, float Intensity = 1.f);
